@@ -3,7 +3,7 @@
 # bash job.sh TYPE URL DIR FROM TO FROMTXT TOTXT H EXACT SPLITMIN NAME FNEG TNEG TXT TEND   (TYPE: audio | both; TEND=1: "den" = het / hien tai)
 export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 TYPE="$1"; URL="$2"; DIR="$3"; FROM="$4"; TO="$5"; FROMTXT="$6"; TOTXT="$7"
-H="$8"; EXACT="$9"; SPLIT="${10}"; NAME="${11}"; FNEG="${12}"; TNEG="${13}"; TXT="${14:-0}"; TEND="${15:-0}"
+H="$8"; EXACT="$9"; SPLIT="${10}"; NAME="${11}"; FNEG="${12}"; TNEG="${13}"; TXT="${14:-0}"; TEND="${15:-0}"; WMODEL="${16:-base.en}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/common.sh"
 CONF="$HOME/Library/Application Support/StreamerCuttingVid"
@@ -41,13 +41,13 @@ done_ok() { # $1 = ten file
       if [ "$TXT" = 1 ]; then
         echo; echo "${C}Đang tạo phụ đề cho từng phần...${N}"
         parts=(); for pf in "$pd"/*; do [ -f "$pf" ] && case "$pf" in *.txt|*.srt) ;; *) parts+=("$pf");; esac; done
-        CV_NOOPEN=1 bash "$HERE/transcribe.sh" small.en auto "${parts[@]}"
+        CV_NOOPEN=1 bash "$HERE/transcribe.sh" "$WMODEL" auto "${parts[@]}"
       fi
       open "$pd"; return
     fi
     echo "${R}Chia nhỏ bị lỗi, file đầy đủ vẫn còn nguyên.${N}"
   fi
-  if [ "$TXT" = 1 ]; then echo; echo "${C}Đang tạo phụ đề...${N}"; bash "$HERE/transcribe.sh" small.en "$ABSFROM" "$DIR/$1"; fi
+  if [ "$TXT" = 1 ]; then echo; echo "${C}Đang tạo phụ đề...${N}"; bash "$HERE/transcribe.sh" "$WMODEL" "$ABSFROM" "$DIR/$1"; fi
   open -R "$DIR/$1"
 }
 hints() {
@@ -203,7 +203,7 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
     [ -s "$pd/.txt_queue" ] || return
     TCUR=$(head -n1 "$pd/.txt_queue"); tail -n +2 "$pd/.txt_queue" > "$pd/.txt_queue.t"; mv "$pd/.txt_queue.t" "$pd/.txt_queue"
     echo "${C}>> Đang tạo phụ đề: $(basename "$TCUR") (chạy nền, log: .txt_log)${N}"
-    CV_NOOPEN=1 bash "$HERE/transcribe.sh" small.en auto "$TCUR" >> "$pd/.txt_log" 2>&1 &
+    CV_NOOPEN=1 bash "$HERE/transcribe.sh" "$WMODEL" auto "$TCUR" >> "$pd/.txt_log" 2>&1 &
     TPID=$!
   }
   need=$((TO + 20))

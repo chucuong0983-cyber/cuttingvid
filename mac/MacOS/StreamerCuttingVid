@@ -4,7 +4,7 @@ export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
 CONF="$HOME/Library/Application Support/StreamerCuttingVid"
 mkdir -p "$CONF"
-VER="1.25"
+VER="1.26"
 TITLE="CuttingVid by Louis Chu  ·  v$VER"
 ICON="$RES/AppIcon.icns"
 
@@ -91,7 +91,7 @@ if [[ "$remote" =~ ^[0-9]+(\.[0-9]+)*$ ]] && newer "$remote" "$VER" && [ -w "$AP
   if [ $ok = 1 ] && [ -n "$list" ]; then
     while IFS= read -r f; do
       [ -z "$f" ] && continue
-      mkdir -p "$APPC/$(dirname "$f")"; cp "$tmp/$f" "$APPC/$f"
+      mkdir -p "$APPC/$(dirname "$f")"; cp "$tmp/$f" "$APPC/$f.new" && mv -f "$APPC/$f.new" "$APPC/$f"   # mv: file moi, luot dang chay van dung file cu
       case "$f" in MacOS/*|*.sh) chmod +x "$APPC/$f";; esac
     done <<< "$list"
     rm -rf "$tmp"

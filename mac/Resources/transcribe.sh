@@ -105,7 +105,7 @@ echo
 if [ $okc -gt 0 ]; then
   echo "${G}XONG! Đã tạo phụ đề cho $okc / $total file (txt + srt nằm cạnh file gốc).${N}"
   echo "${Y}Gửi file .txt cho Claude để phân tích lời thoại.${N}"
-  [ -n "$1" ] && open -R "$(dirname "$1")/$(basename "${1%.*}").txt" 2>/dev/null
+  [ -n "$1" ] && [ -z "$CV_NOOPEN" ] && open -R "$(dirname "$1")/$(basename "${1%.*}").txt" 2>/dev/null
 else
   echo "${R}Không tạo được phụ đề nào.${N}"
 fi

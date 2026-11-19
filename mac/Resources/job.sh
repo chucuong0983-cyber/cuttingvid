@@ -41,7 +41,7 @@ done_ok() { # $1 = ten file
       if [ "$TXT" = 1 ]; then
         echo; echo "${C}Đang tạo phụ đề cho từng phần...${N}"
         parts=(); for pf in "$pd"/*; do [ -f "$pf" ] && case "$pf" in *.txt|*.srt) ;; *) parts+=("$pf");; esac; done
-        bash "$HERE/transcribe.sh" small.en auto "${parts[@]}"
+        CV_NOOPEN=1 bash "$HERE/transcribe.sh" small.en auto "${parts[@]}"
       fi
       open "$pd"; return
     fi
@@ -203,7 +203,7 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
     [ -s "$pd/.txt_queue" ] || return
     TCUR=$(head -n1 "$pd/.txt_queue"); tail -n +2 "$pd/.txt_queue" > "$pd/.txt_queue.t"; mv "$pd/.txt_queue.t" "$pd/.txt_queue"
     echo "${C}>> Đang tạo phụ đề: $(basename "$TCUR") (chạy nền, log: .txt_log)${N}"
-    bash "$HERE/transcribe.sh" small.en auto "$TCUR" >> "$pd/.txt_log" 2>&1 &
+    CV_NOOPEN=1 bash "$HERE/transcribe.sh" small.en auto "$TCUR" >> "$pd/.txt_log" 2>&1 &
     TPID=$!
   }
   need=$((TO + 20))

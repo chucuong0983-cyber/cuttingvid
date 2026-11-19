@@ -1,0 +1,8 @@
+Info.plist
+MacOS/StreamerCuttingVid
+Resources/app.js
+Resources/common.sh
+Resources/install.sh
+Resources/job.sh
+Resources/transcribe.sh
+Resources/AppIcon.icns

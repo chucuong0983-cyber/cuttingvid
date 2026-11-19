@@ -8,11 +8,13 @@ ObjC.registerSubclass({
   name: 'CVTarget',
   methods: {
     'go:': { types: ['void', ['id']], implementation: function (sender) { stopWith(1000); } },
+    'dir:': { types: ['void', ['id']], implementation: function (sender) { stopWith(2002); } },
     'pick:': {
       types: ['void', ['id']],
       implementation: function (sender) {
         var i = 0; try { i = Number(sender.indexOfSelectedItem); } catch (e) {}
-        if (i > 0) stopWith(2000 + i);
+        if (i === 1) stopWith(2001);      // Chon file
+        else if (i === 2) stopWith(2003); // Thoat
       }
     },
     'windowShouldClose:': { types: ['bool', ['id']], implementation: function (w) { stopWith(2003); return false; } }
@@ -82,7 +84,7 @@ function showForm(st) {
 
   // Menu so xuong o goc tren ben phai
   var menu = $.NSPopUpButton.alloc.initWithFramePullsDown($.NSMakeRect(W - 150, 390, 150, 28), true);
-  ['Tùy chọn ▾', 'Chọn file trên máy…', 'Đổi thư mục lưu…', 'Thoát'].forEach(function (t) { menu.addItemWithTitle(t); });
+  ['Tùy chọn ▾', 'Chọn file trên máy…', 'Thoát'].forEach(function (t) { menu.addItemWithTitle(t); });
   menu.setTarget(TGT);
   menu.setAction('pick:');
   v.addSubview(menu);
@@ -116,8 +118,12 @@ function showForm(st) {
   var fName = field(st.name, 0, 108, W);
 
   label('Lưu vào:', 0, 76, W);
-  var fDir = field(st.dir, 0, 48, W);
-  small('Đổi file / thư mục: menu "Tùy chọn ▾" ở góc trên. Nút đỏ / Thoát sẽ được hỏi lại.', 0, 18, W);
+  var fDir = field(st.dir, 0, 48, W - 110);
+  var bDir = $.NSButton.alloc.initWithFrame($.NSMakeRect(W - 102, 45, 102, 30));
+  bDir.setTitle('Đổi…'); bDir.setBezelStyle(1);
+  bDir.setTarget(TGT); bDir.setAction('dir:');
+  v.addSubview(bDir);
+  small('Chọn file trên máy: menu "Tùy chọn ▾" ở góc trên. Nút đỏ / Thoát sẽ được hỏi lại.', 0, 18, W);
 
   var CW = W + 40, CH = H + 170;
   var win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(0, 0, CW, CH), 1 | 2 | 4, 2, false);

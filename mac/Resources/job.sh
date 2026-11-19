@@ -144,11 +144,34 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
   echo "${Y}(đoạn càng xa đầu live càng lâu; nếu mốc \"đến\" chưa tới, app sẽ chờ live phát tới đó)${N}"
   yt-dlp --live-from-start "${SAFE[@]}" -f "$sel" --no-part --no-mtime -o "$base.%(ext)s" "$URL" &
   pid=$!
+  # File tam: tieng = <base>.f140.* (khi tai ca hinh) hoac <base>.m4a (chi tieng); hinh = <base>.fNNN.* khac f140
+  find_aud() { ls "$base".f140.* "$base".m4a 2>/dev/null | grep -v -e 'ytdl$' -e Frag | head -n1; }
+  find_vid() { ls "$base".f*.* 2>/dev/null | grep -v -e '\.f140\.' -e 'ytdl$' -e Frag | head -n1; }
+  # So giay hinh da tai: dem goi tin video / fps (doc file dang ghi, khong giai ma)
+  vdur() {
+    local n r
+    n=$(ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "$1" 2>/dev/null | tr -dc '0-9')
+    r=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 "$1" 2>/dev/null | head -n1)
+    awk -v n="${n:-0}" -v r="$r" 'BEGIN { split(r, a, "/"); f = (a[2] > 0) ? a[1] / a[2] : a[1]; if (f <= 0) f = 30; printf "%d", n / f }'
+  }
+  need=$((TO + 20))
+  aok=0; vok=0; [ "$TYPE" = audio ] && vok=1; tick=0
   while kill -0 "$pid" 2>/dev/null; do
-    sleep 2
-    a=$(ls "$base"*.m4a 2>/dev/null | head -n1)
-    if [ -n "$a" ] && [ "$(fsize "$a")" -ge "$limit" ]; then
-      echo; echo "${C}Đã tải đủ, đang dừng tải...${N}"
+    sleep 2; tick=$((tick + 1))
+    if [ $aok = 0 ]; then
+      a=$(find_aud)
+      if [ -n "$a" ] && [ "$(fsize "$a")" -ge "$limit" ]; then aok=1; [ $vok = 0 ] && { echo; echo "${C}Tiếng đã đủ, đang đợi phần hình tải tới $(fmt $TO)...${N}"; }; fi
+    fi
+    if [ $vok = 0 ] && [ $((tick % 15)) = 0 ]; then
+      v=$(find_vid)
+      if [ -n "$v" ]; then
+        d=$(vdur "$v")
+        [ "${d:-0}" -ge "$need" ] && vok=1
+        [ $aok = 1 ] && [ $vok = 0 ] && echo "${Y}   Hình đã tải tới $(fmt ${d:-0}) / $(fmt $TO)${N}"
+      fi
+    fi
+    if [ $aok = 1 ] && [ $vok = 1 ]; then
+      echo; echo "${C}Đã tải đủ cả hình và tiếng, đang dừng tải...${N}"
       pkill -TERM -P "$pid" 2>/dev/null
       kill -TERM "$pid" 2>/dev/null
       break
@@ -156,8 +179,8 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
   done
   wait "$pid" 2>/dev/null
   sleep 2
-  aud=$(ls -S "$base"*.m4a 2>/dev/null | grep -v -e 'ytdl$' -e Frag | head -n1)
-  vid=$(ls -S "$base"*.mp4 "$base"*.webm "$base"*.mkv 2>/dev/null | grep -v -e 'ytdl$' -e Frag | head -n1)
+  aud=$(find_aud)
+  vid=$(find_vid)
   src="$vid"; [ "$TYPE" = audio ] && src="$aud"
   echo
   if [ -z "$src" ] || [ "$(fsize "$src")" -lt 10000 ]; then

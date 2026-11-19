@@ -154,6 +154,58 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
     r=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 "$1" 2>/dev/null | head -n1)
     awk -v n="${n:-0}" -v r="$r" 'BEGIN { split(r, a, "/"); f = (a[2] > 0) ? a[1] / a[2] : a[1]; if (f <= 0) f = 30; printf "%d", n / f }'
   }
+  adur() { # so giay tieng da tai
+    local n r
+    n=$(ffprobe -v error -select_streams a:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 "$1" 2>/dev/null | tr -dc '0-9')
+    r=$(ffprobe -v error -select_streams a:0 -show_entries stream=sample_rate -of csv=p=0 "$1" 2>/dev/null | tr -dc '0-9')
+    awk -v n="${n:-0}" -v r="${r:-44100}" 'BEGIN { if (r <= 0) r = 44100; printf "%d", n * 1024 / r }'
+  }
+  # --- Chia nho dan dan: tai du phan nao cat phan do, tao phu de phan do luon ---
+  PROG=0; PNEXT=1; TPID=""
+  if [ "${SPLIT:-0}" -gt 0 ] 2>/dev/null; then
+    PROG=1
+    pbase="$OUTNAME"; [ -n "$NAME" ] && pbase="$NAME"
+    pd="$DIR/$pbase (chia nho)"; mkdir -p "$pd"
+    printf 'start=%s\nsplit=%s\n' "$FROM" "$SPLIT" > "$pd/.scv_info"
+    : > "$pd/.scv_parts.csv"; : > "$pd/.txt_queue"
+    echo "${Y}Chia nhỏ mỗi $SPLIT phút: tải đủ phần nào app cắt phần đó ngay (thư mục: $pd)${N}"
+  fi
+  cut_parts() { # $1 = so giay da co (tinh tu dau live), $2 = 1 neu da tai xong
+    local have=$1 fin=$2 ps pe pn pf a v
+    while :; do
+      ps=$((FROM + (PNEXT - 1) * SPLIT * 60)); [ $ps -ge $TO ] && return
+      pe=$((ps + SPLIT * 60)); [ $pe -gt $TO ] && pe=$TO
+      [ "$fin" != 1 ] && [ $((pe + 15)) -gt "$have" ] && return
+      pn=$(printf '%02d' $PNEXT); pf="$pd/$pbase $pn.$EXT"
+      a=$(find_aud); v=$(find_vid)
+      if [ "$TYPE" = audio ]; then
+        ffmpeg -hide_banner -loglevel error -y -ss "$ps" -i "$a" -t $((pe - ps)) -vn -c:a libmp3lame -q:a 0 "$pf"
+      else
+        ffmpeg -hide_banner -loglevel error -y -ss "$ps" -i "$v" -ss "$ps" -i "$a" -t $((pe - ps)) -map 0:v:0 -map 1:a:0 "${VENC[@]}" "${AENC[@]}" "$pf"
+      fi
+      if [ "$(fsize "$pf")" -gt 1000 ]; then
+        echo "$pbase $pn.$EXT,$((ps - FROM))" >> "$pd/.scv_parts.csv"
+        echo; echo "${G}>> Xong phần $pn ($(fmt $ps) - $(fmt $pe)): $pf${N}"
+        [ "$TXT" = 1 ] && echo "$pf" >> "$pd/.txt_queue"
+      else
+        echo "${R}   Cắt phần $pn bị lỗi${N}"
+      fi
+      PNEXT=$((PNEXT + 1))
+    done
+  }
+  txt_worker() { # tao phu de tung phan o nen, lan luot tung cai
+    [ "$TXT" = 1 ] && [ "$PROG" = 1 ] || return
+    if [ -n "$TPID" ] && kill -0 "$TPID" 2>/dev/null; then return; fi
+    if [ -n "$TPID" ]; then
+      [ -s "$TCUR" ] && [ -s "${TCUR%.*}.txt" ] && echo "${G}>> Xong phụ đề: ${TCUR%.*}.txt${N}"
+      TPID=""
+    fi
+    [ -s "$pd/.txt_queue" ] || return
+    TCUR=$(head -n1 "$pd/.txt_queue"); tail -n +2 "$pd/.txt_queue" > "$pd/.txt_queue.t"; mv "$pd/.txt_queue.t" "$pd/.txt_queue"
+    echo "${C}>> Đang tạo phụ đề: $(basename "$TCUR") (chạy nền, log: .txt_log)${N}"
+    bash "$HERE/transcribe.sh" small.en auto "$TCUR" >> "$pd/.txt_log" 2>&1 &
+    TPID=$!
+  }
   need=$((TO + 20))
   aok=0; vok=0; [ "$TYPE" = audio ] && vok=1; tick=0
   while kill -0 "$pid" 2>/dev/null; do
@@ -170,6 +222,15 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
         [ $aok = 1 ] && [ $vok = 0 ] && echo "${Y}   Hình đã tải tới $(fmt ${d:-0}) / $(fmt $TO)${N}"
       fi
     fi
+    if [ "$PROG" = 1 ] && [ $((tick % 30)) = 0 ]; then
+      a=$(find_aud); have=0
+      if [ -n "$a" ]; then
+        have=$(adur "$a")
+        if [ "$TYPE" != audio ]; then v=$(find_vid); hv=0; [ -n "$v" ] && hv=$(vdur "$v"); [ "$hv" -lt "$have" ] && have=$hv; fi
+        cut_parts "$have" 0
+      fi
+    fi
+    [ "$PROG" = 1 ] && txt_worker
     if [ $aok = 1 ] && [ $vok = 1 ]; then
       echo; echo "${C}Đã tải đủ cả hình và tiếng, đang dừng tải...${N}"
       pkill -TERM -P "$pid" 2>/dev/null
@@ -185,6 +246,19 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
   echo
   if [ -z "$src" ] || [ "$(fsize "$src")" -lt 10000 ]; then
     echo "${R}Không tải được.${N}"; hints
+  elif [ "$PROG" = 1 ]; then
+    echo "${C}Cắt các phần còn lại...${N}"
+    cut_parts 999999 1
+    if [ "$TXT" = 1 ]; then
+      echo "${C}Đợi tạo xong phụ đề các phần còn lại (có thể lâu, đừng đóng cửa sổ)...${N}"
+      while { [ -n "$TPID" ] && kill -0 "$TPID" 2>/dev/null; } || [ -s "$pd/.txt_queue" ]; do txt_worker; sleep 5; done
+      txt_worker
+    fi
+    rm -f "$base"* "$pd/.txt_queue"
+    n=$(ls "$pd"/*."$EXT" 2>/dev/null | wc -l | tr -d ' ')
+    echo; echo "${G}XONG! $n phần trong thư mục: $pd${N}"
+    [ "$TXT" = 1 ] && echo "${Y}Mỗi phần có file .txt cùng tên (mốc tính theo buổi live).${N}"
+    open "$pd"
   else
     echo "${C}Bước 2/2: cắt đoạn $(fmt $FROM) đến $(fmt $TO) ...${N}"
     out="$OUTNAME.$EXT"

@@ -33,7 +33,7 @@ done_ok() { # $1 = ten file
     printf 'start=%s\nsplit=%s\n' "$ABSFROM" "$SPLIT" > "$pd/.scv_info"
     echo "${C}Đang chia nhỏ mỗi phần $SPLIT phút...${N}"
     pat="$pd/${base//%/%%} %02d.$EXT"
-    ffmpeg -hide_banner -loglevel error -y -i "$DIR/$1" -map 0 -c copy -f segment -segment_time $((SPLIT * 60)) -segment_start_number 1 -reset_timestamps 1 "$pat"
+    ffmpeg -hide_banner -loglevel error -y -i "$DIR/$1" -map 0 -c copy -f segment -segment_time $((SPLIT * 60)) -segment_start_number 1 -reset_timestamps 1 -segment_list "$pd/.scv_parts.csv" -segment_list_type csv "$pat"
     n=$(ls "$pd" 2>/dev/null | wc -l | tr -d ' ')
     if [ "$n" -gt 0 ]; then
       echo "${G}Đã chia thành $n phần trong thư mục: $pd${N}"

@@ -13,6 +13,11 @@ auto_offset() {
   if [ -f "$dir/.scv_info" ]; then
     st=$(sed -n 's/^start=//p' "$dir/.scv_info" | head -n1)
     sp=$(sed -n 's/^split=//p' "$dir/.scv_info" | head -n1)
+    # Moc bat dau that cua tung phan (ffmpeg ghi khi chia nho) -> chinh xac tung phan giay
+    if [ -f "$dir/.scv_parts.csv" ]; then
+      local t; t=$(awk -F, -v f="$bn" '$1 == f { printf "%d", $2 + 0.5; exit }' "$dir/.scv_parts.csv")
+      if [ -n "$t" ]; then echo $(( ${st:-0} + t )); return; fi
+    fi
     re=' ([0-9]+)\.[A-Za-z0-9]+$'
     if [[ "$bn" =~ $re ]]; then
       n=$((10#${BASH_REMATCH[1]}))

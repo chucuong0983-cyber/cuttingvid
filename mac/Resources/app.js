@@ -22,6 +22,7 @@ ObjC.registerSubclass({
 });
 
 var RES, CONF, TITLE, ICONIMG = null, TGT = null;
+var ENGINES = ['groq', 'fw-fast', 'fw-acc'];
 
 function q(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 function exists(p) { return p && $.NSFileManager.defaultManager.fileExistsAtPath(p); }
@@ -57,6 +58,26 @@ function alertBox(text, buttons, style) {
   if (ICONIMG) a.setIcon(ICONIMG);
   for (var i = 0; i < buttons.length; i++) a.addButtonWithTitle(buttons[i]);
   return a.runModal - 1000;
+}
+// Hoi API key Groq (luu tai CONF/groq_key.txt, chi tren may nay)
+function askGroqKey() {
+  var a = $.NSAlert.alloc.init;
+  a.setMessageText(TITLE);
+  a.setInformativeText('Chế độ Siêu nhanh dùng Groq (miễn phí, không cần thẻ).\n\n1. Bấm "Mở trang lấy key" → đăng nhập Google\n2. Bấm "Create API Key" → copy\n3. Dán vào ô dưới rồi bấm Lưu.\n\nKey chỉ lưu trên máy này.');
+  if (ICONIMG) a.setIcon(ICONIMG);
+  a.addButtonWithTitle('Lưu'); a.addButtonWithTitle('Mở trang lấy key'); a.addButtonWithTitle('Hủy');
+  var f = $.NSTextField.alloc.initWithFrame($.NSMakeRect(0, 0, 320, 24));
+  f.setPlaceholderString('gsk_...');
+  a.setAccessoryView(f);
+  while (true) {
+    a.window.setInitialFirstResponder(f);
+    var r = a.runModal - 1000;
+    if (r === 1) { $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString('https://console.groq.com/keys')); continue; }
+    if (r !== 0) return false;
+    var k = f.stringValue.js.trim();
+    if (/^gsk_\S{20,}$/.test(k)) { writeText(CONF + '/groq_key.txt', k); return true; }
+    alertBox('Key không đúng dạng (phải bắt đầu bằng gsk_). Thử lại nhé.', ['OK'], 1);
+  }
 }
 function msg(t) { alertBox(t, ['OK'], 1); }
 function confirmExit() { return alertBox('Bạn có chắc muốn thoát app không?', ['Không', 'Thoát']) === 1; }
@@ -110,8 +131,8 @@ function showForm(st) {
 
   var cTxt = check('Xuất phụ đề txt', 0, 228, 150, st.txt);
   var popW = $.NSPopUpButton.alloc.initWithFramePullsDown($.NSMakeRect(150, 224, W - 150, 28), false);
-  ['Nhanh (base.en, nhanh gấp 2-3 lần)', 'Chính xác (small.en, chậm)'].forEach(function (t) { popW.addItemWithTitle(t); });
-  popW.selectItemAtIndex(st.wfast ? 0 : 1);
+  ['Siêu nhanh qua mạng (Groq, miễn phí, cần key)', 'Nhanh trên máy (faster-whisper)', 'Chính xác trên máy (chậm hơn)'].forEach(function (t) { popW.addItemWithTitle(t); });
+  popW.selectItemAtIndex(Math.max(0, ENGINES.indexOf(st.wmodel)));
   v.addSubview(popW);
   var cExact = check('Cắt chính xác từng giây (chậm hơn, dùng khi cắt bản cuối)', 0, 200, W, st.exact);
   var cSplit = check('Chia nhỏ, mỗi phần', 0, 172, 150, st.split);
@@ -158,7 +179,7 @@ function showForm(st) {
   st.url = fUrl.stringValue.js.trim().replace(/^"|"$/g, '');
   st.from = fFrom.stringValue.js; st.to = fTo.stringValue.js;
   st.idx = pop.indexOfSelectedItem;
-  st.txt = cTxt.state == 1; st.wfast = popW.indexOfSelectedItem == 0; st.exact = cExact.state == 1; st.split = cSplit.state == 1;
+  st.txt = cTxt.state == 1; st.wmodel = ENGINES[popW.indexOfSelectedItem] || 'fw-fast'; st.exact = cExact.state == 1; st.split = cSplit.state == 1;
   st.min = fMin.stringValue.js; st.name = fName.stringValue.js; st.dir = fDir.stringValue.js.trim();
   if (code == 2001) return 'file';
   if (code == 2002) return 'dir';
@@ -184,7 +205,7 @@ function run(argv) {
 
   var dir = readText(CONF + '/folder');
   if (!isDir(dir)) dir = $.NSHomeDirectory().js + '/Desktop';
-  var st = { url: clip(), from: '00:00:00', to: '00:05:00', idx: 1, wfast: true, exact: false, split: false, min: '30', txt: false, name: '', dir: dir };
+  var st = { url: clip(), from: '00:00:00', to: '00:05:00', idx: 1, wmodel: readText(CONF + '/engine') || 'fw-fast', exact: false, split: false, min: '30', txt: false, name: '', dir: dir };
 
   while (true) {
     var r;
@@ -207,7 +228,11 @@ function run(argv) {
     if (!tend && fneg && tneg && to >= from) { msg('Với số âm: mốc "từ" phải âm nhiều hơn mốc "đến". Ví dụ từ -4:31:41 đến -4:30:00'); continue; }
     if (st.split && !(/^\d+$/.test(st.min) && +st.min >= 1)) { msg('Số phút mỗi phần phải là số, ví dụ 30'); continue; }
 
+    if (st.txt && st.wmodel === 'groq' && !readText(CONF + '/groq_key.txt')) {
+      if (!askGroqKey()) { st.wmodel = 'fw-fast'; msg('Chưa có key Groq nên app chuyển sang "Nhanh trên máy".'); continue; }
+    }
     writeText(CONF + '/folder', st.dir);
+    writeText(CONF + '/engine', st.wmodel);
     var name = st.name.replace(/[\/:]/g, '-').replace(/\.(mp3|mp4)$/i, '').trim();
     var type, h, exact = st.exact ? 1 : 0;
     if (st.idx === 0) { type = 'audio'; h = 1080; exact = 0; }
@@ -217,13 +242,13 @@ function run(argv) {
 
     // File tren may, lay ca file, giu nguyen, khong chia: chi quet phu de
     if (local && from === 0 && tend && type === 'both' && h === 99999 && !exact && !splitMin) {
-      if (st.txt) { terminal('clear; bash ' + [RES + '/transcribe.sh', st.wfast ? 'base.en' : 'small.en', 'auto', st.url].map(q).join(' ')); return ''; }
+      if (st.txt) { terminal('clear; bash ' + [RES + '/transcribe.sh', st.wmodel, 'auto', st.url].map(q).join(' ')); return ''; }
       msg('Bạn đang lấy nguyên file, giữ nguyên chất lượng, không chia nhỏ: không có gì để cắt. Tick "Xuất phụ đề txt" nếu chỉ muốn quét lời nói.');
       continue;
     }
 
     var args = [RES + '/job.sh', type, st.url, st.dir, from, to, fromT, toT || 'het', h, exact, splitMin, name,
-                fneg ? 1 : 0, tneg ? 1 : 0, st.txt ? 1 : 0, tend ? 1 : 0, st.wfast ? 'base.en' : 'small.en'];
+                fneg ? 1 : 0, tneg ? 1 : 0, st.txt ? 1 : 0, tend ? 1 : 0, st.wmodel];
     terminal('bash ' + args.map(q).join(' '));
     return '';
   }

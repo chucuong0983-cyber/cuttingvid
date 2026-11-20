@@ -3,7 +3,7 @@
 # bash job.sh TYPE URL DIR FROM TO FROMTXT TOTXT H EXACT SPLITMIN NAME FNEG TNEG TXT TEND   (TYPE: audio | both; TEND=1: "den" = het / hien tai)
 export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 TYPE="$1"; URL="$2"; DIR="$3"; FROM="$4"; TO="$5"; FROMTXT="$6"; TOTXT="$7"
-H="$8"; EXACT="$9"; SPLIT="${10}"; NAME="${11}"; FNEG="${12}"; TNEG="${13}"; TXT="${14:-0}"; TEND="${15:-0}"; WMODEL="${16:-base.en}"
+H="$8"; EXACT="$9"; SPLIT="${10}"; NAME="${11}"; FNEG="${12}"; TNEG="${13}"; TXT="${14:-0}"; TEND="${15:-0}"; WMODEL="${16:-fw-fast}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/common.sh"
 CONF="$HOME/Library/Application Support/StreamerCuttingVid"

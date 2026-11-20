@@ -1,14 +1,28 @@
 #!/bin/bash
 # Tao phu de bang whisper.cpp (chay tren may, khong can mang tru lan dau tai model).
 # bash transcribe.sh MODEL OFFSET file1 [file2 ...]
-#   MODEL : small.en | base.en
+#   MODEL : groq (Groq API, can key) | fw-fast | fw-acc (faster-whisper tren may) | base.en | small.en (whisper.cpp)
+#           Khong dung duoc engine da chon -> tu quay ve whisper.cpp
 #   OFFSET: so giay cong vao moc trong txt, hoac "auto" (tu doan theo ten file / thu muc chia nho)
 # Ra 2 file canh file goc: <ten>.txt  ([HH:MM:SS] cau noi, moc tinh tu dau buoi live)
 #                          <ten>.srt  (moc tinh tu dau file, dung cho CapCut)
 export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/common.sh"
-MODEL="${1:-small.en}"; OFFMODE="${2:-auto}"; shift 2
+MODEL="${1:-fw-fast}"; OFFMODE="${2:-auto}"; shift 2
+ENGINE=cpp; PYMODEL=""; CPPMODEL="$MODEL"
+case "$MODEL" in
+  groq)    ENGINE=groq; PYMODEL=whisper-large-v3-turbo; CPPMODEL=base.en;;
+  fw-fast) ENGINE=fw;   PYMODEL=distil-small.en;        CPPMODEL=base.en;;
+  fw-acc)  ENGINE=fw;   PYMODEL=small.en;               CPPMODEL=small.en;;
+esac
+command -v python3 >/dev/null || ENGINE=cpp
+if [ "$ENGINE" = fw ] && ! python3 -c 'import faster_whisper' 2>/dev/null; then
+  echo "Đang cài faster-whisper (chỉ lần đầu, 1-3 phút)..."
+  python3 -m pip install --user --quiet faster-whisper 2>/dev/null || python3 -m pip install --user --quiet --break-system-packages faster-whisper 2>/dev/null
+  python3 -c 'import faster_whisper' 2>/dev/null || { echo "Không cài được faster-whisper, dùng whisper.cpp."; ENGINE=cpp; }
+fi
+export CV_FFMPEG="$(command -v ffmpeg)" CV_FFPROBE="$(command -v ffprobe)"
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
 MD="$HOME/Library/Application Support/StreamerCuttingVid/models"
 mkdir -p "$MD"
@@ -40,18 +54,21 @@ build_whisper() {
   [ -x "$BIN/whisper-cli" ] || { echo "${R}Build whisper.cpp bị lỗi. Chụp màn hình gửi lại để kiểm tra.${N}"; return 1; }
   echo "${G}  Đã cài whisper.cpp.${N}"
 }
+CPPREADY=0
+ensure_cpp() {
+[ $CPPREADY = 1 ] && return 0
 WB=$(command -v whisper-cli || command -v whisper-cpp)
 if [ -z "$WB" ]; then build_whisper; WB=$(command -v whisper-cli); fi
-[ -z "$WB" ] && exit 1
+[ -z "$WB" ] && return 1
 
 # --- model ---
-MF="$MD/ggml-$MODEL.bin"
+MF="$MD/ggml-$CPPMODEL.bin"
 if [ ! -s "$MF" ]; then
-  echo "${C}Lần đầu dùng: đang tải model $MODEL (chỉ tải 1 lần)...${N}"
-  if curl -L --fail --progress-bar -o "$MF.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$MODEL.bin"; then
+  echo "${C}Lần đầu dùng: đang tải model $CPPMODEL (chỉ tải 1 lần)...${N}"
+  if curl -L --fail --progress-bar -o "$MF.part" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$CPPMODEL.bin"; then
     mv "$MF.part" "$MF"
   else
-    rm -f "$MF.part"; echo "${R}Tải model bị lỗi. Kiểm tra mạng rồi thử lại.${N}"; exit 1
+    rm -f "$MF.part"; echo "${R}Tải model bị lỗi. Kiểm tra mạng rồi thử lại.${N}"; return 1
   fi
 fi
 # Model loc khoang lang (VAD) giup bot "bia chu" o doan chi co nhac / im lang
@@ -63,6 +80,8 @@ fi
 USEVAD=0
 if [ -s "$VADF" ] && "$WB" --help 2>&1 | grep -q -- '--vad'; then USEVAD=1; fi
 TH=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+CPPREADY=1
+}
 
 total=$#; i=0; okc=0
 for IN in "$@"; do
@@ -73,6 +92,20 @@ for IN in "$@"; do
   echo
   echo "${C}[$i/$total] Đang quét: $bn${N}"
   echo "${C}    Mốc trong txt sẽ tính từ $(fmt "$OFF") của buổi live${N}"
+  if [ "$ENGINE" != cpp ]; then
+    t0=$(date +%s)
+    [ "$ENGINE" = groq ] && echo "${C}    Cách quét: Groq qua mạng (whisper-large-v3-turbo)${N}" || echo "${C}    Cách quét: faster-whisper trên máy ($PYMODEL)${N}"
+    python3 "$HERE/asr.py" "$ENGINE" "$PYMODEL" "$IN" "$OFF" "$out"; rc=$?
+    if [ $rc = 0 ] && [ -s "$out.txt" ]; then
+      okc=$((okc + 1)); echo "${G}    Xong sau $(( $(date +%s) - t0 )) giây: $stem.txt${N}"; continue
+    fi
+    if [ "$ENGINE" = groq ] && python3 -c 'import faster_whisper' 2>/dev/null; then
+      echo "${Y}    Groq không dùng được, chuyển sang faster-whisper trên máy...${N}"
+      python3 "$HERE/asr.py" fw distil-small.en "$IN" "$OFF" "$out" && [ -s "$out.txt" ] && { okc=$((okc + 1)); echo "${G}    Xong: $stem.txt${N}"; continue; }
+    fi
+    echo "${Y}    Chuyển sang whisper.cpp...${N}"
+  fi
+  ensure_cpp || { echo "${R}    Không cài được whisper.cpp.${N}"; continue; }
   tmpd=$(mktemp -d); wav="$tmpd/a.wav"
   ffmpeg -hide_banner -loglevel error -y -i "$IN" -vn -ac 1 -ar 16000 -c:a pcm_s16le "$wav"
   if [ ! -s "$wav" ]; then echo "${R}    Không đọc được âm thanh của file này.${N}"; rm -rf "$tmpd"; continue; fi

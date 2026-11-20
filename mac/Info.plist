@@ -8,7 +8,7 @@
   <key>CFBundleDisplayName</key><string>CuttingVid by Louis Chu</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.29</string>
+  <key>CFBundleShortVersionString</key><string>1.30</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>10.13</string>
   <key>NSAppleEventsUsageDescription</key><string>Streamer CuttingVid mở Terminal để hiện tiến độ tải.</string>

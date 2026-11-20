@@ -35,10 +35,10 @@ $dur = 0.0; [void][double]::TryParse(((& ffprobe -v error -show_entries format=d
 if ($dur -le 0) { $dur = 360000 }
 function T([double]$x) { $ms = [int64][math]::Round($x * 1000); return ('{0:00}:{1:00}:{2:00},{3:000}' -f [math]::Floor($ms / 3600000), [math]::Floor(($ms % 3600000) / 60000), [math]::Floor(($ms % 60000) / 1000), ($ms % 1000)) }
 $sb = New-Object System.Text.StringBuilder; $n = 0; $ok = $true
-for ($st = 0; $st -lt $dur; $st += 1200) {
+for ($st = 0; $st -lt $dur; $st += 600) {
     $mp3 = Join-Path $env:TEMP ('scv_g_' + [guid]::NewGuid().ToString('N') + '.mp3')
     $js = "$mp3.json"
-    & ffmpeg -hide_banner -loglevel error -y -ss $st -t 1200 -i $In -vn -ac 1 -ar 16000 -b:a 48k $mp3
+    & ffmpeg -hide_banner -loglevel error -y -ss $st -t 600 -i $In -vn -ac 1 -ar 16000 -b:a 48k $mp3
     if (-not (Test-Path -LiteralPath $mp3) -or (Get-Item -LiteralPath $mp3).Length -lt 2000) { Remove-Item -LiteralPath $mp3 -ErrorAction SilentlyContinue; break }
     $got = $false
     for ($a = 1; $a -le 3 -and -not $got; $a++) {

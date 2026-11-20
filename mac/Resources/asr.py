@@ -112,23 +112,44 @@ def run_groq(src, model):
     if total <= 0:
         say('Khong doc duoc do dai file.')
         return None
-    chunk = 1200  # 20 phut / lan gui (~7MB, duoi gioi han 25MB cua goi mien phi)
-    segs, t0 = [], time.time()
+    # Cat 10 phut / doan (~3.5MB): Groq xu ly nhanh hon, it bi loi 524 (qua thoi gian);
+    # gui 3 doan cung luc de nhanh gap ~3 lan.
+    chunk = 600
+    t0 = time.time()
     tmp = tempfile.mkdtemp(prefix='cv_groq_')
-    start = 0.0
-    while start < total:
-        mp3 = os.path.join(tmp, 'c.mp3')
-        subprocess.run([FFMPEG, '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(start), '-i', src, '-t', str(chunk),
+    starts = []
+    st = 0.0
+    while st < total:
+        starts.append(st); st += chunk
+
+    def one(k):
+        st = starts[k]
+        mp3 = os.path.join(tmp, 'c%03d.mp3' % k)
+        subprocess.run([FFMPEG, '-hide_banner', '-loglevel', 'error', '-y', '-ss', str(st), '-i', src, '-t', str(chunk),
                         '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '48k', mp3])
-        if os.path.getsize(mp3) < 1000:
-            break
+        if not os.path.exists(mp3) or os.path.getsize(mp3) < 1000:
+            return []
         data = groq_post(mp3, key, model)
+        try: os.remove(mp3)
+        except OSError: pass
         if data is None:
-            return None
-        for s in data.get('segments') or []:
-            segs.append((start + float(s.get('start', 0)), start + float(s.get('end', 0)), s.get('text', '')))
-        start += chunk
-        say('   Groq: da xong %s / %s (%.0fs)' % (hms(min(start, total)), hms(total), time.time() - t0))
+            raise RuntimeError('groq')
+        return [(st + float(x.get('start', 0)), st + float(x.get('end', 0)), x.get('text', '')) for x in (data.get('segments') or [])]
+
+    from concurrent.futures import ThreadPoolExecutor
+    res = [None] * len(starts); done = 0
+    try:
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            futs = {ex.submit(one, k): k for k in range(len(starts))}
+            for f in futs:
+                res[futs[f]] = f.result()
+                done += 1
+                say('   Groq: da xong %d/%d doan 10 phut (%.0fs)' % (done, len(starts), time.time() - t0))
+    except RuntimeError:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return None
+    shutil.rmtree(tmp, ignore_errors=True)
+    segs = [x for r in res for x in (r or [])]
     return segs
 
 

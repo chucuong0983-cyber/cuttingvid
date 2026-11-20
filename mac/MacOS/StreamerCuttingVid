@@ -4,7 +4,7 @@ export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
 CONF="$HOME/Library/Application Support/StreamerCuttingVid"
 mkdir -p "$CONF"
-VER="2.0.1"
+VER="2.0.2"
 TITLE="CuttingVid by Louis Chu  ·  v$VER"
 ICON="$RES/AppIcon.icns"
 

@@ -4,7 +4,8 @@
 ObjC.import('Cocoa');
 try { ObjC.import('WebKit'); } catch (e) {}
 
-function stopWith(c) { try { $.NSApplication.sharedApplication.stopModalWithCode(c); } catch (e) {} }
+var WEBCODE = 0;
+function stopWith(c) { WEBCODE = c; try { $.NSApplication.sharedApplication.stopModalWithCode(c); } catch (e) {} }
 ObjC.registerSubclass({
   name: 'CVTarget',
   methods: {
@@ -486,8 +487,6 @@ function runWeb(argv) {
   WIN.contentView.addSubview(WV);
   var u = $.NSURL.fileURLWithPath(RES + '/ui.html');
   WV.loadFileURLAllowingReadAccessToURL(u, $.NSURL.fileURLWithPath(RES));
-  var timer = $.NSTimer.timerWithTimeIntervalTargetSelectorUserInfoRepeats(0.2, TGT, 'tick:', null, true);
-  $.NSRunLoop.currentRunLoop.addTimerForMode(timer, $.NSRunLoopCommonModes);
   WIN.center;
   WIN.makeKeyAndOrderFront(null);
   // Menu Sua (de Command+C / V / A / Z dung duoc trong o nhap)
@@ -500,13 +499,22 @@ function runWeb(argv) {
     ei.setSubmenu(em); mb.addItem(ei);
     $.NSApplication.sharedApplication.setMainMenu(mb);
   } catch (e) {}
-  // Trang khong hien trong 8 giay -> quay ve giao dien cu
+  // Vong lap su kien tu lam (khong dung runModalForWindow: loi voi WKWebView tren macOS 14.8)
+  var app = $.NSApplication.sharedApplication;
+  var MASK = 0xFFFFFFFF; // moi loai su kien
+  var MODE = $.NSDefaultRunLoopMode;
+  WEBCODE = 0;
+  var last = 0;
   while (true) {
-    var code = $.NSApplication.sharedApplication.runModalForWindow(WIN);
-    if (code == 2999) { timer.invalidate; WIN.orderOut(null); throw WSTATE.why || 'blank'; }
-    if (code == 2003) {
+    var ev = app.nextEventMatchingMaskUntilDateInModeDequeue(MASK, $.NSDate.dateWithTimeIntervalSinceNow(0.05), MODE, true);
+    if (ev && !ev.isNil()) app.sendEvent(ev);
+    var now = Date.now();
+    if (now - last >= 200) { last = now; try { webTick(); } catch (e) { WSTATE.tickErr = String(e); } }
+    if (WEBCODE == 2999) { WIN.orderOut(null); throw WSTATE.why || 'blank'; }
+    if (WEBCODE == 2003) {
+      WEBCODE = 0;
       var msgx = jobRunning() ? 'Thoát app? Lượt đang chạy vẫn tiếp tục chạy nền, mở lại app để xem tiến độ.' : 'Bạn có chắc muốn thoát app không?';
-      if (alertBox(msgx, ['Không', 'Thoát']) === 1) { timer.invalidate; WIN.orderOut(null); return ''; }
+      if (alertBox(msgx, ['Không', 'Thoát']) === 1) { WIN.orderOut(null); return ''; }
     }
   }
 }

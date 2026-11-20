@@ -20,6 +20,54 @@ $from = [int]$P.from; $to = [int]$P.to; $fromTxt = $P.fromTxt; $toTxt = $P.toTxt
 $h = [int]$P.h; $exact = [bool]$P.exact; $split = [int]$P.split; $name = $P.name
 $fneg = [bool]$P.fneg; $tneg = [bool]$P.tneg; $txt = [bool]$P.txt; $tend = [bool]$P.tend; $wmodel = $P.wmodel
 if (-not $wmodel) { $wmodel = 'base.en' }
+$ENG = 'cpp'; if ($wmodel -eq 'groq') { $ENG = 'groq'; $wmodel = 'base.en' }
+$GKEY = Join-Path $env:APPDATA 'StreamerCuttingVid\groq_key.txt'
+if ($ENG -eq 'groq' -and -not (Test-Path -LiteralPath $GKEY)) { $ENG = 'cpp' }
+# Script Groq chay nen: cat 20 phut / doan -> gui Groq -> ghi .srt (moc tinh tu dau file)
+$GROQPS = Join-Path $env:TEMP 'scv_groq.ps1'
+$groqCode = @'
+param([string]$In, [string]$Ob, [string]$KeyFile)
+$ErrorActionPreference = 'Continue'
+$key = (Get-Content -LiteralPath $KeyFile -Raw).Trim()
+$hdr = Join-Path $env:TEMP ('scv_h_' + [guid]::NewGuid().ToString('N') + '.txt')
+[IO.File]::WriteAllText($hdr, "Authorization: Bearer $key", (New-Object System.Text.UTF8Encoding($false)))
+$dur = 0.0; [void][double]::TryParse(((& ffprobe -v error -show_entries format=duration -of csv=p=0 $In) | Select-Object -First 1), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$dur)
+if ($dur -le 0) { $dur = 360000 }
+function T([double]$x) { $ms = [int64][math]::Round($x * 1000); return ('{0:00}:{1:00}:{2:00},{3:000}' -f [math]::Floor($ms / 3600000), [math]::Floor(($ms % 3600000) / 60000), [math]::Floor(($ms % 60000) / 1000), ($ms % 1000)) }
+$sb = New-Object System.Text.StringBuilder; $n = 0; $ok = $true
+for ($st = 0; $st -lt $dur; $st += 1200) {
+    $mp3 = Join-Path $env:TEMP ('scv_g_' + [guid]::NewGuid().ToString('N') + '.mp3')
+    $js = "$mp3.json"
+    & ffmpeg -hide_banner -loglevel error -y -ss $st -t 1200 -i $In -vn -ac 1 -ar 16000 -b:a 48k $mp3
+    if (-not (Test-Path -LiteralPath $mp3) -or (Get-Item -LiteralPath $mp3).Length -lt 2000) { Remove-Item -LiteralPath $mp3 -ErrorAction SilentlyContinue; break }
+    $got = $false
+    for ($a = 1; $a -le 6 -and -not $got; $a++) {
+        $code = & curl.exe -s -o $js -w '%{http_code}' -H "@$hdr" -F "file=@$mp3" --form-string 'model=whisper-large-v3-turbo' --form-string 'response_format=verbose_json' --form-string 'language=en' 'https://api.groq.com/openai/v1/audio/transcriptions'
+        if ($code -eq '200') { $got = $true }
+        elseif ($code -eq '401') { Write-Output 'Key Groq sai hoac het han.'; break }
+        else { Start-Sleep -Seconds (15 * $a) }
+    }
+    if (-not $got) { $ok = $false; Remove-Item -LiteralPath $mp3, $js -ErrorAction SilentlyContinue; break }
+    $j = Get-Content -LiteralPath $js -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($g in $j.segments) {
+        $t = ([string]$g.text).Trim(); if (-not $t) { continue }
+        $n++; [void]$sb.Append("$n`n$(T ($st + [double]$g.start)) --> $(T ($st + [double]$g.end))`n$t`n`n")
+    }
+    Remove-Item -LiteralPath $mp3, $js -ErrorAction SilentlyContinue
+}
+Remove-Item -LiteralPath $hdr -ErrorAction SilentlyContinue
+if ($ok) { [IO.File]::WriteAllText("$Ob.srt", $sb.ToString(), (New-Object System.Text.UTF8Encoding($false))); exit 0 }
+exit 1
+'@
+[IO.File]::WriteAllText($GROQPS, $groqCode, (New-Object System.Text.UTF8Encoding($true)))
+# yt-dlp can deno de doc link YouTube on dinh hon: tai 1 lan vao bin
+if (($url -match '^https?://') -and -not (Test-Path -LiteralPath (Join-Path $BIN 'deno.exe'))) {
+    Write-Host 'Lan dau: dang tai deno (giup yt-dlp doc YouTube on dinh)...' -ForegroundColor Cyan
+    $dz = Join-Path $env:TEMP 'scv_deno.zip'
+    & curl.exe -L --fail -s -o $dz 'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip'
+    if ($LASTEXITCODE -eq 0) { try { Expand-Archive -LiteralPath $dz -DestinationPath $BIN -Force } catch {} }
+    Remove-Item -LiteralPath $dz -ErrorAction SilentlyContinue
+}
 
 $Host.UI.RawUI.WindowTitle = "CuttingVid - cat $fromTxt den $toTxt"
 Set-Location -LiteralPath $dir
@@ -108,22 +156,35 @@ function Ensure-Whisper {
     return (Test-Path -LiteralPath $WCLI)
 }
 # Bat dau quet 1 file o nen. Tra ve doi tuong de theo doi.
-function Start-Whisper([string]$file, [int]$offset) {
+function Start-Whisper([string]$file, [int]$offset, [bool]$cpp = $false) {
+    $ob = [IO.Path]::Combine((Split-Path -Parent $file), [IO.Path]::GetFileNameWithoutExtension($file))
+    if ($ENG -eq 'groq' -and -not $cpp) {
+        Remove-Item -LiteralPath "$ob.srt" -ErrorAction SilentlyContinue
+        $ga = "-NoProfile -ExecutionPolicy Bypass -File `"$GROQPS`" -In `"$file`" -Ob `"$ob`" -KeyFile `"$GKEY`""
+        $p = Start-Process powershell.exe -ArgumentList $ga -WindowStyle Hidden -PassThru
+        return [pscustomobject]@{ proc = $p; file = $file; wav = $null; ob = $ob; off = $offset; groq = $true }
+    }
+    if (-not (Ensure-Whisper)) { return $null }
     $wav = Join-Path $env:TEMP ("scv_" + [guid]::NewGuid().ToString('N') + '.wav')
     & ffmpeg -hide_banner -loglevel error -y -i $file -vn -ac 1 -ar 16000 -c:a pcm_s16le $wav
     if (-not (Test-Path -LiteralPath $wav)) { Say "Khong doc duoc am thanh: $file" Red; return $null }
-    $ob = [IO.Path]::Combine((Split-Path -Parent $file), [IO.Path]::GetFileNameWithoutExtension($file))
     $th = [Environment]::ProcessorCount
     $a = "-m `"$($script:MF)`" -f `"$wav`" -l en -t $th -osrt -of `"$ob`" -np"
     if (Test-Path -LiteralPath $script:VADF) { $a += " --vad -vm `"$($script:VADF)`"" }
     $log = Join-Path $env:TEMP 'scv_whisper_log.txt'
     $p = Start-Process -FilePath $WCLI -ArgumentList $a -WindowStyle Hidden -PassThru -RedirectStandardOutput $log -RedirectStandardError "$log.err"
-    return [pscustomobject]@{ proc = $p; file = $file; wav = $wav; ob = $ob; off = $offset }
+    return [pscustomobject]@{ proc = $p; file = $file; wav = $wav; ob = $ob; off = $offset; groq = $false }
 }
 # Doi ket thuc thi doi srt -> txt (moc tinh tu dau buoi live)
 function Finish-Whisper($w) {
-    Remove-Item -LiteralPath $w.wav -Force -ErrorAction SilentlyContinue
+    if ($w.wav) { Remove-Item -LiteralPath $w.wav -Force -ErrorAction SilentlyContinue }
     $srt = "$($w.ob).srt"
+    if ($w.groq -and -not (Test-Path -LiteralPath $srt)) {
+        Say "   Groq loi (mang/gioi han), chuyen sang quet tren may: $(Split-Path -Leaf $w.file)" Yellow
+        $w2 = Start-Whisper $w.file $w.off $true
+        if ($w2) { $w2.proc.WaitForExit(); Finish-Whisper $w2 }
+        return
+    }
     if (-not (Test-Path -LiteralPath $srt)) { Say "   Quet phu de loi: $(Split-Path -Leaf $w.file)" Red; return }
     $out = New-Object System.Collections.Generic.List[string]
     $out.Add("# Phu de: $(Split-Path -Leaf $w.file)")
@@ -144,7 +205,7 @@ function Finish-Whisper($w) {
 }
 # Quet lan luot (cho xong) - dung khi khong chia dan dan
 function Transcribe-Files($files, $offsets) {
-    if (-not (Ensure-Whisper)) { return }
+    if ($ENG -eq 'groq') { Say 'Cach quet: Groq qua mang (whisper-large-v3-turbo, rat nhanh)' } elseif (-not (Ensure-Whisper)) { return }
     for ($k = 0; $k -lt $files.Count; $k++) {
         Say "[$($k + 1)/$($files.Count)] Dang quet phu de: $(Split-Path -Leaf $files[$k]) (moc tu $(Fmt $offsets[$k]))"
         $w = Start-Whisper $files[$k] $offsets[$k]

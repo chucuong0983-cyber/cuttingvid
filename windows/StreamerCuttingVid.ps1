@@ -9,7 +9,7 @@ trap {
     exit 1
 }
 
-$AppVersion = '1.26'
+$AppVersion = '1.27'
 $AppName = 'CuttingVid by Louis Chu'
 $Here = $PSScriptRoot
 $ConfDir = Join-Path $env:APPDATA 'StreamerCuttingVid'
@@ -122,9 +122,34 @@ $chkTxt.Text = 'Xuất phụ đề txt'; $chkTxt.Location = New-Object System.Dr
 $form.Controls.Add($chkTxt)
 $cmbW = New-Ctl ComboBox $null 160 268 382 27
 $cmbW.DropDownStyle = 'DropDownList'
-[void]$cmbW.Items.Add('Nhanh (base.en, nhanh gấp 2-3 lần)')
-[void]$cmbW.Items.Add('Chính xác (small.en, chậm)')
-$cmbW.SelectedIndex = 0
+[void]$cmbW.Items.Add('Siêu nhanh qua mạng (Groq, miễn phí, cần key)')
+[void]$cmbW.Items.Add('Nhanh trên máy (base.en)')
+[void]$cmbW.Items.Add('Chính xác trên máy (small.en, chậm)')
+$EngFile = Join-Path $ConfDir 'engine.txt'; $GroqKeyFile = Join-Path $ConfDir 'groq_key.txt'
+$cmbW.SelectedIndex = 1
+try { $ei = [int](Get-Content -LiteralPath $EngFile -ErrorAction Stop | Select-Object -First 1); if ($ei -ge 0 -and $ei -le 2) { $cmbW.SelectedIndex = $ei } } catch {}
+
+function Ask-GroqKey {
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = 'Key Groq (miễn phí)'; $f.Size = New-Object System.Drawing.Size(500, 260); $f.StartPosition = 'CenterParent'
+    $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
+    $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+    $l = New-Object System.Windows.Forms.Label
+    $l.Text = "Chế độ Siêu nhanh dùng Groq (miễn phí, không cần thẻ).`n1. Bấm 'Mở trang lấy key' → đăng nhập Google`n2. Bấm 'Create API Key' → copy`n3. Dán vào ô dưới rồi bấm Lưu. Key chỉ lưu trên máy này."
+    $l.Location = New-Object System.Drawing.Point(14, 12); $l.Size = New-Object System.Drawing.Size(460, 90); $f.Controls.Add($l)
+    $t = New-Object System.Windows.Forms.TextBox; $t.Location = New-Object System.Drawing.Point(14, 110); $t.Size = New-Object System.Drawing.Size(456, 27); $f.Controls.Add($t)
+    $bo = New-Object System.Windows.Forms.Button; $bo.Text = 'Mở trang lấy key'; $bo.Location = New-Object System.Drawing.Point(14, 160); $bo.Size = New-Object System.Drawing.Size(150, 32); $f.Controls.Add($bo)
+    $bo.Add_Click({ Start-Process 'https://console.groq.com/keys' })
+    $bs = New-Object System.Windows.Forms.Button; $bs.Text = 'Lưu'; $bs.Location = New-Object System.Drawing.Point(290, 160); $bs.Size = New-Object System.Drawing.Size(85, 32); $bs.DialogResult = 'OK'; $f.Controls.Add($bs)
+    $bc = New-Object System.Windows.Forms.Button; $bc.Text = 'Hủy'; $bc.Location = New-Object System.Drawing.Point(385, 160); $bc.Size = New-Object System.Drawing.Size(85, 32); $bc.DialogResult = 'Cancel'; $f.Controls.Add($bc)
+    $f.AcceptButton = $bs; $f.CancelButton = $bc
+    while ($f.ShowDialog() -eq 'OK') {
+        $k = $t.Text.Trim()
+        if ($k -match '^gsk_\S{20,}$') { New-Item -ItemType Directory -Force -Path $ConfDir | Out-Null; [IO.File]::WriteAllText($GroqKeyFile, $k); return $true }
+        Show-Msg 'Key không đúng dạng (phải bắt đầu bằng gsk_). Thử lại nhé.' 'Warning'
+    }
+    return $false
+}
 
 $chkExact = New-Object System.Windows.Forms.CheckBox
 $chkExact.Text = 'Cắt chính xác từng giây (chậm hơn, dùng khi cắt bản cuối)'
@@ -264,7 +289,11 @@ $btnGo.Add_Click({
     $h = [int]((Cur).h[$i])
     $exact = $chkExact.Checked -and $i -gt 0
     $split = 0; if ($chkSplit.Checked) { $split = [int]$numSplit.Value }
-    $wmodel = 'base.en'; if ($cmbW.SelectedIndex -eq 1) { $wmodel = 'small.en' }
+    $wmodel = @('groq', 'base.en', 'small.en')[$cmbW.SelectedIndex]
+    if ($chkTxt.Checked -and $wmodel -eq 'groq' -and -not (Test-Path -LiteralPath $GroqKeyFile)) {
+        if (-not (Ask-GroqKey)) { $cmbW.SelectedIndex = 1; Show-Msg 'Chưa có key Groq nên app chuyển sang "Nhanh trên máy".' 'Information'; return }
+    }
+    try { Set-Content -LiteralPath $EngFile -Value $cmbW.SelectedIndex } catch {}
 
     # File tren may, lay ca file, giu nguyen, khong chia, chi can phu de -> van chay job (job tu quet)
     if ($isLocal -and $from -eq 0 -and $tEnd -and $type -eq 'both' -and $h -eq 99999 -and -not $exact -and $split -eq 0 -and -not $chkTxt.Checked) {

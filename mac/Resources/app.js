@@ -13,8 +13,8 @@ ObjC.registerSubclass({
       types: ['void', ['id']],
       implementation: function (sender) {
         var i = 0; try { i = Number(sender.indexOfSelectedItem); } catch (e) {}
-        if (i === 1) stopWith(2001);      // Chon file
-        else if (i === 2) stopWith(2003); // Thoat
+        if (i >= 1 && i <= 4) stopWith(2000 + i * 10); // 2010 file, 2020 quet nhieu, 2030 key, 2040 mo thu muc
+        else if (i === 5) stopWith(2003);              // Thoat
       }
     },
     'windowShouldClose:': { types: ['bool', ['id']], implementation: function (w) { stopWith(2003); return false; } }
@@ -81,14 +81,17 @@ function askGroqKey() {
 }
 function msg(t) { alertBox(t, ['OK'], 1); }
 function confirmExit() { return alertBox('Bạn có chắc muốn thoát app không?', ['Không', 'Thoát']) === 1; }
-function openPanel(dir) {
+function openPanel(dir, multi) {
   var p = $.NSOpenPanel.openPanel;
   p.setCanChooseFiles(!dir);
   p.setCanChooseDirectories(dir);
-  p.setAllowsMultipleSelection(false);
-  p.setMessage(dir ? 'Chọn thư mục lưu file' : 'Chọn file video / âm thanh để cắt');
-  if (p.runModal == 1) return p.URL.path.js;
-  return '';
+  p.setAllowsMultipleSelection(!!multi);
+  p.setMessage(dir ? 'Chọn thư mục lưu file' : multi ? 'Chọn các file cần quét phụ đề (giữ Command hoặc Shift để chọn nhiều)' : 'Chọn file video / âm thanh để cắt');
+  if (p.runModal != 1) return multi ? [] : '';
+  if (!multi) return p.URL.path.js;
+  var out = [], u = p.URLs, n = u.count;
+  for (var i = 0; i < n; i++) out.push(u.objectAtIndex(i).path.js);
+  return out;
 }
 
 function showForm(st) {
@@ -104,13 +107,13 @@ function showForm(st) {
   }
 
   // Menu so xuong o goc tren ben phai
-  var menu = $.NSPopUpButton.alloc.initWithFramePullsDown($.NSMakeRect(W - 150, 390, 150, 28), true);
-  ['Tùy chọn ▾', 'Chọn file trên máy…', 'Thoát'].forEach(function (t) { menu.addItemWithTitle(t); });
+  var menu = $.NSPopUpButton.alloc.initWithFramePullsDown($.NSMakeRect(W - 120, 390, 120, 28), true);
+  ['Tùy chọn ▾', 'Chọn file trên máy để cắt…', 'Chỉ quét phụ đề nhiều file…', 'Nhập / đổi key Groq…', 'Mở thư mục lưu', 'Thoát'].forEach(function (t) { menu.addItemWithTitle(t); });
   menu.setTarget(TGT);
   menu.setAction('pick:');
   v.addSubview(menu);
 
-  label(local ? 'File trên máy:' : 'Link YouTube (đang live hay đã xong):', 0, 394, W - 160);
+  label(local ? 'File trên máy:' : 'Link YouTube (đang live hay đã xong):', 0, 394, W - 130);
   var fUrl = field(st.url, 0, 362, W);
 
   label('Cắt từ:', 0, 330, 60);
@@ -137,7 +140,7 @@ function showForm(st) {
   var cExact = check('Cắt chính xác từng giây (chậm hơn, dùng khi cắt bản cuối)', 0, 200, W, st.exact);
   var cSplit = check('Chia nhỏ, mỗi phần', 0, 172, 150, st.split);
   var fMin = field(st.min, 150, 171, 50);
-  label('phút (gửi Claude: dưới 400MB/phần)', 206, 175, W - 206);
+  label('phút / phần (mỗi phần có txt riêng)', 206, 175, W - 206);
 
   label('Tên file (để trống = tự đặt theo mốc thời gian):', 0, 136, W);
   var fName = field(st.name, 0, 108, W);
@@ -148,7 +151,7 @@ function showForm(st) {
   bDir.setTitle('Đổi…'); bDir.setBezelStyle(1);
   bDir.setTarget(TGT); bDir.setAction('dir:');
   v.addSubview(bDir);
-  small('Chọn file trên máy: menu "Tùy chọn ▾" ở góc trên. Nút đỏ / Thoát sẽ được hỏi lại.', 0, 18, W);
+  small('Chọn file trên máy, quét phụ đề nhiều file, key Groq: menu "Tùy chọn ▾" ở góc trên.', 0, 18, W);
 
   var CW = W + 40, CH = H + 170;
   var win = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(0, 0, CW, CH), 1 | 2 | 4, 2, false);
@@ -181,7 +184,10 @@ function showForm(st) {
   st.idx = pop.indexOfSelectedItem;
   st.txt = cTxt.state == 1; st.wmodel = ENGINES[popW.indexOfSelectedItem] || 'fw-fast'; st.exact = cExact.state == 1; st.split = cSplit.state == 1;
   st.min = fMin.stringValue.js; st.name = fName.stringValue.js; st.dir = fDir.stringValue.js.trim();
-  if (code == 2001) return 'file';
+  if (code == 2010) return 'file';
+  if (code == 2020) return 'multi';
+  if (code == 2030) return 'key';
+  if (code == 2040) return 'open';
   if (code == 2002) return 'dir';
   if (code == 1000) return 'go';
   return 'quit';
@@ -213,6 +219,23 @@ function run(argv) {
     if (r === 'quit') { if (confirmExit()) return ''; continue; }
     if (r === 'file') { var f = openPanel(false); if (f) { st.url = f; if (st.to === '00:05:00') st.to = ''; st.idx = 1; } continue; }
     if (r === 'dir') { var d = openPanel(true); if (d) st.dir = d; continue; }
+    if (r === 'key') { askGroqKey(); continue; }
+    if (r === 'open') { if (isDir(st.dir)) $.NSWorkspace.sharedWorkspace.openFile(st.dir); continue; }
+    if (r === 'multi') {
+      var fs = openPanel(false, true);
+      if (!fs.length) continue;
+      var todo = fs.filter(function (f) { return !exists(f.replace(/\.[^.\/]+$/, '') + '.txt'); });
+      if (todo.length < fs.length) {
+        var c = alertBox((fs.length - todo.length) + ' / ' + fs.length + ' file đã có txt. Quét lại cả những file đó?', ['Chỉ quét file chưa có txt', 'Quét lại tất cả', 'Hủy']);
+        if (c === 2) continue;
+        if (c === 1) todo = fs;
+      }
+      if (!todo.length) continue;
+      if (st.wmodel === 'groq' && !readText(CONF + '/groq_key.txt') && !askGroqKey()) st.wmodel = 'fw-fast';
+      writeText(CONF + '/engine', st.wmodel);
+      terminal('clear; CV_NOOPEN=1 bash ' + [RES + '/transcribe.sh', st.wmodel, 'auto'].concat(todo).map(q).join(' ') + '; open ' + q(todo[0].replace(/\/[^\/]*$/, '')));
+      return '';
+    }
 
     // --- kiem tra ---
     var local = isLocal(st.url);

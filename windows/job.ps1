@@ -290,8 +290,10 @@ if (-not $status) {
     Hints
 } elseif ($status -eq 'local' -and [bool]$P.only_txt) {
     # ---- CHI QUET PHU DE CHO FILE CO SAN ----
-    Transcribe-Files @($url) @(Auto-Offset $url)
-    Start-Process explorer.exe -ArgumentList ('/select,"' + [IO.Path]::ChangeExtension($url, '.txt') + '"')
+    $fl = @($url); if ($P.files) { $fl = @($P.files) }
+    Transcribe-Files $fl @($fl | ForEach-Object { Auto-Offset $_ })
+    Say "XONG phu de cho $($fl.Count) file." Green
+    Start-Process explorer.exe -ArgumentList ('/select,"' + [IO.Path]::ChangeExtension($fl[0], '.txt') + '"')
 } elseif ($status -eq 'local') {
     # ---- FILE CO SAN TREN MAY ----
     Say "File tren may: $url"

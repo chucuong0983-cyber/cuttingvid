@@ -9,7 +9,7 @@ trap {
     exit 1
 }
 
-$AppVersion = '1.30'
+$AppVersion = '1.31'
 $AppName = 'CuttingVid by Louis Chu'
 $Here = $PSScriptRoot
 $ConfDir = Join-Path $env:APPDATA 'StreamerCuttingVid'
@@ -163,7 +163,7 @@ $numSplit = New-Object System.Windows.Forms.NumericUpDown
 $numSplit.Location = New-Object System.Drawing.Point(170, 333); $numSplit.Size = New-Object System.Drawing.Size(60, 27)
 $numSplit.Minimum = 1; $numSplit.Maximum = 240; $numSplit.Value = 30
 $form.Controls.Add($numSplit)
-$lblSplit = New-Ctl Label 'phút (gửi Claude: dưới 400MB/phần)' 236 336 310 20
+$lblSplit = New-Ctl Label 'phút / phần (mỗi phần có txt riêng)' 236 336 310 20
 
 [void](New-Ctl Label 'Tên file (để trống = tự đặt theo mốc thời gian):' 18 372 $null $null)
 $txtName = New-Ctl TextBox $null 18 396 524 27
@@ -187,6 +187,12 @@ $lnkUpdate.Text = 'Bị lỗi không tải được? Bấm để cập nhật yt
 $lnkUpdate.Location = New-Object System.Drawing.Point(18, 566); $lnkUpdate.AutoSize = $true
 $form.Controls.Add($lnkUpdate)
 $btnExit = New-Ctl Button 'Thoát' 462 560 80 30
+$btnMenu = New-Ctl Button 'Tùy chọn ▾' 432 24 110 30
+$cms = New-Object System.Windows.Forms.ContextMenuStrip
+$miMulti = $cms.Items.Add('Chỉ quét phụ đề nhiều file…')
+$miKey = $cms.Items.Add('Nhập / đổi key Groq…')
+$miOpen = $cms.Items.Add('Mở thư mục lưu')
+$btnMenu.Add_Click({ $cms.Show($btnMenu, 0, $btnMenu.Height) })
 
 # ---------- Che do: link YouTube / file tren may ----------
 $script:modeLocal = $null
@@ -204,7 +210,7 @@ $updAll = {
     if ($i -ge 0) {
         $lblSize.Text = (Cur).size[$i]
         $mb = [int]([double]$numSplit.Value * (Cur).mb[$i])
-        $lblSplit.Text = "phút  (≈ $mb MB/phần; gửi Claude: dưới 400MB)"
+        $lblSplit.Text = "phút / phần  (≈ $mb MB/phần, mỗi phần có txt riêng)"
     }
     $numSplit.Enabled = $chkSplit.Checked
     $cmbW.Enabled = $chkTxt.Checked
@@ -243,6 +249,39 @@ $btnFile.Add_Click({
     $od.Title = 'Chọn file video / âm thanh để cắt'
     $od.Filter = 'Video / âm thanh|*.mp4;*.mkv;*.webm;*.mov;*.m4a;*.mp3;*.ts;*.flv|Tất cả file|*.*'
     if ($od.ShowDialog() -eq 'OK') { $txtUrl.Text = $od.FileName; if ($txtTo.Text -eq '00:05:00') { $txtTo.Text = '' } }
+})
+$miKey.Add_Click({ if (Ask-GroqKey) { Show-Msg 'Đã lưu key Groq.' } })
+$miOpen.Add_Click({ if (Test-Path -LiteralPath $txtFolder.Text -PathType Container) { Start-Process explorer.exe -ArgumentList ('"' + $txtFolder.Text + '"') } })
+$miMulti.Add_Click({
+    if (Test-Path -LiteralPath $LockFile) {
+        $old = (Get-Content -LiteralPath $LockFile -ErrorAction SilentlyContinue | Select-Object -First 1)
+        if ($old -and (Get-Process -Id ([int]$old) -ErrorAction SilentlyContinue)) { Show-Msg 'Đang có 1 lượt chạy. Đợi xong rồi làm tiếp nhé.' 'Warning'; return }
+    }
+    $od = New-Object System.Windows.Forms.OpenFileDialog
+    $od.Title = 'Chọn các file cần quét phụ đề (giữ Ctrl hoặc Shift để chọn nhiều)'
+    $od.Filter = 'Video / âm thanh|*.mp4;*.mkv;*.webm;*.mov;*.m4a;*.mp3;*.ts;*.flv|Tất cả file|*.*'
+    $od.Multiselect = $true
+    if ($od.ShowDialog() -ne 'OK') { return }
+    $fs = @($od.FileNames | Sort-Object)
+    $todo = @($fs | Where-Object { -not (Test-Path -LiteralPath ([IO.Path]::ChangeExtension($_, '.txt'))) })
+    if ($todo.Count -lt $fs.Count) {
+        $r = [System.Windows.Forms.MessageBox]::Show("$($fs.Count - $todo.Count) / $($fs.Count) file đã có txt.`n`nCó: quét lại tất cả`nKhông: chỉ quét file chưa có txt", $AppName, 'YesNoCancel', 'Question')
+        if ($r -eq 'Cancel') { return }
+        if ($r -eq 'Yes') { $todo = $fs }
+    }
+    if ($todo.Count -eq 0) { return }
+    $wm = @('groq', 'base.en', 'small.en')[$cmbW.SelectedIndex]
+    if ($wm -eq 'groq' -and -not (Test-Path -LiteralPath $GroqKeyFile)) { if (-not (Ask-GroqKey)) { $wm = 'base.en' } }
+    try { Set-Content -LiteralPath $EngFile -Value $cmbW.SelectedIndex } catch {}
+    $params = [ordered]@{ type = 'both'; url = $todo[0]; dir = (Split-Path -Parent $todo[0]); from = 0; to = 0; fromTxt = '00:00:00'; toTxt = 'het'
+        h = 99999; exact = $false; split = 0; name = ''; fneg = $false; tneg = $false; txt = $true; tend = $true; wmodel = $wm; only_txt = $true; files = $todo }
+    $stamp = [guid]::NewGuid().ToString('N')
+    $pf = Join-Path $env:TEMP "scv_params_$stamp.json"
+    $jf = Join-Path $env:TEMP "scv_job_$stamp.ps1"
+    [IO.File]::WriteAllText($pf, ($params | ConvertTo-Json), (New-Object System.Text.UTF8Encoding($false)))
+    Copy-Item -LiteralPath (Join-Path $Here 'job.ps1') -Destination $jf -Force
+    $jp = Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $jf + '"'), '-ParamFile', ('"' + $pf + '"') -PassThru
+    try { Set-Content -LiteralPath $LockFile -Value $jp.Id -ErrorAction Stop } catch {}
 })
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog

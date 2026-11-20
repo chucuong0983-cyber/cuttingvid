@@ -41,11 +41,11 @@ for ($st = 0; $st -lt $dur; $st += 1200) {
     & ffmpeg -hide_banner -loglevel error -y -ss $st -t 1200 -i $In -vn -ac 1 -ar 16000 -b:a 48k $mp3
     if (-not (Test-Path -LiteralPath $mp3) -or (Get-Item -LiteralPath $mp3).Length -lt 2000) { Remove-Item -LiteralPath $mp3 -ErrorAction SilentlyContinue; break }
     $got = $false
-    for ($a = 1; $a -le 6 -and -not $got; $a++) {
+    for ($a = 1; $a -le 3 -and -not $got; $a++) {
         $code = & curl.exe -s -o $js -w '%{http_code}' -H "@$hdr" -F "file=@$mp3" --form-string 'model=whisper-large-v3-turbo' --form-string 'response_format=verbose_json' --form-string 'language=en' 'https://api.groq.com/openai/v1/audio/transcriptions'
         if ($code -eq '200') { $got = $true }
         elseif ($code -eq '401') { Write-Output 'Key Groq sai hoac het han.'; break }
-        else { Start-Sleep -Seconds (15 * $a) }
+        elseif ($a -lt 3) { Start-Sleep -Seconds (15 * $a) }
     }
     if (-not $got) { $ok = $false; Remove-Item -LiteralPath $mp3, $js -ErrorAction SilentlyContinue; break }
     $j = Get-Content -LiteralPath $js -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -180,7 +180,8 @@ function Finish-Whisper($w) {
     if ($w.wav) { Remove-Item -LiteralPath $w.wav -Force -ErrorAction SilentlyContinue }
     $srt = "$($w.ob).srt"
     if ($w.groq -and -not (Test-Path -LiteralPath $srt)) {
-        Say "   Groq loi (mang/gioi han), chuyen sang quet tren may: $(Split-Path -Leaf $w.file)" Yellow
+        Say "   Groq het luot mien phi / loi mang: tu day quet tren may (khong thu Groq nua)." Yellow
+        $script:ENG = 'cpp'
         $w2 = Start-Whisper $w.file $w.off $true
         if ($w2) { $w2.proc.WaitForExit(); Finish-Whisper $w2 }
         return

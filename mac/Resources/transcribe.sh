@@ -17,6 +17,10 @@ case "$MODEL" in
   fw-acc)  ENGINE=fw;   PYMODEL=small.en;               CPPMODEL=small.en;;
 esac
 command -v python3 >/dev/null || ENGINE=cpp
+GPAUSE="$HOME/Library/Application Support/StreamerCuttingVid/.groq_pause"
+if [ "$ENGINE" = groq ] && [ -n "$(find "$GPAUSE" -mmin -60 2>/dev/null)" ]; then
+  echo "Groq vừa hết lượt miễn phí (<1 giờ trước): quét trên máy."; ENGINE=fw; PYMODEL=distil-small.en
+fi
 if [ "$ENGINE" = fw ] && ! python3 -c 'import faster_whisper' 2>/dev/null; then
   echo "Đang cài faster-whisper (chỉ lần đầu, 1-3 phút)..."
   python3 -m pip install --user --quiet faster-whisper 2>/dev/null || python3 -m pip install --user --quiet --break-system-packages faster-whisper 2>/dev/null
@@ -99,7 +103,14 @@ for IN in "$@"; do
     if [ $rc = 0 ] && [ -s "$out.txt" ]; then
       okc=$((okc + 1)); echo "${G}    Xong sau $(( $(date +%s) - t0 )) giây: $stem.txt${N}"; continue
     fi
-    if [ "$ENGINE" = groq ] && python3 -c 'import faster_whisper' 2>/dev/null; then
+    if [ "$ENGINE" = groq ]; then
+      # Groq loi/het luot: cac file con lai (va 1 gio toi) quet tren may luon, khong thu Groq nua
+      touch "$GPAUSE"; ENGINE=fw; PYMODEL=distil-small.en; JUSTGROQ=1
+      python3 -c 'import faster_whisper' 2>/dev/null || python3 -m pip install --user --quiet faster-whisper >/dev/null 2>&1 || python3 -m pip install --user --quiet --break-system-packages faster-whisper >/dev/null 2>&1
+      python3 -c 'import faster_whisper' 2>/dev/null || ENGINE=cpp
+    fi
+    if [ "$ENGINE" = fw ] && [ -n "$JUSTGROQ" ]; then
+      JUSTGROQ=
       echo "${Y}    Groq không dùng được, chuyển sang faster-whisper trên máy...${N}"
       python3 "$HERE/asr.py" fw distil-small.en "$IN" "$OFF" "$out" && [ -s "$out.txt" ] && { okc=$((okc + 1)); echo "${G}    Xong: $stem.txt${N}"; continue; }
     fi

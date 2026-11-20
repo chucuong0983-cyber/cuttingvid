@@ -67,15 +67,20 @@ def groq_post(path, key, model):
     body += open(path, 'rb').read() + ('\r\n--%s--\r\n' % bnd).encode()
     req = urllib.request.Request('https://api.groq.com/openai/v1/audio/transcriptions', data=body, method='POST',
                                  headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'multipart/form-data; boundary=' + bnd})
-    for attempt in range(8):
+    for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=300) as r:
                 return json.loads(r.read().decode('utf-8'))
         except urllib.error.HTTPError as e:
             msg = e.read().decode('utf-8', 'replace')[:300]
             if e.code == 429 or e.code >= 500:
-                wait = int(e.headers.get('retry-after') or 0) or min(60 * (attempt + 1), 300)
-                say('   Groq dang ban / gioi han mien phi, doi %ds roi thu lai...' % wait)
+                try: wait = int(float(e.headers.get('retry-after') or 0))
+                except ValueError: wait = 0
+                wait = wait or 15 * (attempt + 1)
+                if wait > 90 or attempt == 3:
+                    say('   Groq da het luot mien phi (cho khoang %d phut). Chuyen sang quet tren may.' % max(1, wait // 60))
+                    return None
+                say('   Groq dang ban, doi %ds roi thu lai...' % wait)
                 time.sleep(wait)
                 continue
             if e.code in (401, 403):

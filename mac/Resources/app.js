@@ -287,7 +287,9 @@ function runClassic(argv) {
 var WV = null, WIN = null, SA = null, LASTT = '', TICKN = 0, RUNPID = '', WSTATE = null, STOPPING = false;
 var LOG = '';
 
-function js(code) { try { WV.evaluateJavaScriptCompletionHandler(code, null); } catch (e) {} }
+// Luu y: KHONG truyen null cho completionHandler (JXA boc null thanh block, WebKit goi lai -> loi "null is not an object")
+function jsDone(r, e) {}
+function js(code) { try { WV.evaluateJavaScriptCompletionHandler(code, jsDone); } catch (e) {} }
 function sh(cmd) { try { return SA.doShellScript(cmd); } catch (e) { return ''; } }
 function readTail(p, n) {
   var fh = $.NSFileHandle.fileHandleForReadingAtPath(p);

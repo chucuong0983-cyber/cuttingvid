@@ -5,6 +5,8 @@
 #           fw    -> faster-whisper tren may (int8, quet theo lo, loc khoang lang)
 # Ra: OUT_BASE.srt (moc tinh tu dau file) va OUT_BASE.txt ([HH:MM:SS] cau, moc tinh tu dau buoi live)
 # Thoat 0 = thanh cong; 3 = khong dung duoc engine nay (de script goi quay ve whisper.cpp)
+import shutil
+import re
 import json, os, subprocess, sys, tempfile, time, uuid, urllib.request, urllib.error
 
 CONF = os.path.expanduser('~/Library/Application Support/StreamerCuttingVid')
@@ -58,40 +60,47 @@ def groq_key():
 
 
 def groq_post(path, key, model):
-    bnd = uuid.uuid4().hex
-    fields = {'model': model, 'response_format': 'verbose_json', 'language': 'en', 'temperature': '0'}
-    body = b''
-    for k, v in fields.items():
-        body += ('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n' % (bnd, k, v)).encode()
-    body += ('--%s\r\nContent-Disposition: form-data; name="file"; filename="a.mp3"\r\nContent-Type: audio/mpeg\r\n\r\n' % bnd).encode()
-    body += open(path, 'rb').read() + ('\r\n--%s--\r\n' % bnd).encode()
-    req = urllib.request.Request('https://api.groq.com/openai/v1/audio/transcriptions', data=body, method='POST',
-                                 headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'multipart/form-data; boundary=' + bnd})
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(req, timeout=300) as r:
-                return json.loads(r.read().decode('utf-8'))
-        except urllib.error.HTTPError as e:
-            msg = e.read().decode('utf-8', 'replace')[:300]
-            if e.code == 429 or e.code >= 500:
-                try: wait = int(float(e.headers.get('retry-after') or 0))
-                except ValueError: wait = 0
-                wait = wait or 15 * (attempt + 1)
+    # Gui bang curl cua he thong (on dinh hon urllib; Groq hay chan/ngat urllib -> "Broken pipe")
+    tmp = tempfile.mkdtemp(prefix='cv_gp_')
+    hdr = os.path.join(tmp, 'h.txt'); out = os.path.join(tmp, 'o.json')
+    with open(hdr, 'w') as f:
+        f.write('Authorization: Bearer %s\n' % key)
+    cmd = ['curl', '-sS', '--max-time', '600', '-A', 'CuttingVid/1.0', '-o', out, '-w', '%{http_code}', '-H', '@' + hdr,
+           '-F', 'file=@' + path + ';type=audio/mpeg', '--form-string', 'model=' + model,
+           '--form-string', 'response_format=verbose_json', '--form-string', 'language=en', '--form-string', 'temperature=0',
+           'https://api.groq.com/openai/v1/audio/transcriptions']
+    try:
+        for attempt in range(4):
+            r = subprocess.run(cmd, capture_output=True, text=True)
+            code = (r.stdout or '').strip()[-3:]
+            body = ''
+            if os.path.exists(out):
+                with open(out, encoding='utf-8', errors='replace') as f:
+                    body = f.read()
+            if code == '200':
+                return json.loads(body)
+            if code in ('401', '403'):
+                say('   Groq tu choi key (%s): %s' % (code, body[:200]))
+                return None
+            if code == '429' or code.startswith('5') or code in ('000', ''):
+                wait = 15 * (attempt + 1)
+                m = re.search(r'try again in ([0-9hms.]+)', body)
+                if code == '429' and m:
+                    t = m.group(1); sec = 0.0
+                    for v, u in re.findall(r'([0-9.]+)([hms])', t):
+                        sec += float(v) * {'h': 3600, 'm': 60, 's': 1}[u]
+                    wait = int(sec) + 2
                 if wait > 90 or attempt == 3:
-                    say('   Groq da het luot mien phi (cho khoang %d phut). Chuyen sang quet tren may.' % max(1, wait // 60))
+                    say('   Groq het luot mien phi / loi mang (%s). Chuyen sang quet tren may.' % (code or r.stderr.strip()[:120]))
                     return None
-                say('   Groq dang ban, doi %ds roi thu lai...' % wait)
+                say('   Groq chua tra loi (%s), doi %ds roi thu lai...' % (code if code not in ('000', '') else r.stderr.strip()[:120], wait))
                 time.sleep(wait)
                 continue
-            if e.code in (401, 403):
-                say('   API key Groq khong dung. Kiem tra lai key.')
-            else:
-                say('   Groq bao loi %d: %s' % (e.code, msg))
+            say('   Groq bao loi %s: %s' % (code, body[:200]))
             return None
-        except Exception as e:
-            say('   Loi mang: %s. Thu lai...' % e)
-            time.sleep(10)
-    return None
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def run_groq(src, model):

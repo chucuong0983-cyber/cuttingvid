@@ -427,9 +427,13 @@ function handle(m) {
 function webTick() {
   if (!WV) return;
   TICKN++;
-  if (!WSTATE.sent && TICKN > 40) { stopWith(2999); return; }
   var t = '';
-  try { t = WV.title.js; } catch (e) {}
+  try { t = WV.title.js; } catch (e) { WSTATE.terr = String(e); }
+  if (!WSTATE.sent && TICKN > 40) {
+    var ld = ''; try { ld = String(WV.isLoading) + ' url=' + (WV.URL && !WV.URL.isNil() ? WV.URL.absoluteString.js : 'nil'); } catch (e) { ld = 'x ' + e; }
+    WSTATE.why = 'trang không báo sẵn sàng (title="' + t + '", loading=' + ld + (WSTATE.terr ? ', ' + WSTATE.terr : '') + ')';
+    stopWith(2999); return;
+  }
   if (t === 'ready' && !WSTATE.sent) {
     WSTATE.sent = true;
     js('CV.init(' + JSON.stringify(WSTATE.init) + ')');
@@ -474,6 +478,7 @@ function runWeb(argv) {
   WIN.setMinSize($.NSMakeSize(820, 560));
   WIN.setReleasedWhenClosed(false);
   WIN.setDelegate(TGT);
+  WSTATE.step = 'webview';
   var cfg = $.WKWebViewConfiguration.alloc.init;
   WV = $.WKWebView.alloc.initWithFrameConfiguration($.NSMakeRect(0, 0, W, H), cfg);
   try { WV.setValueForKey($(false), 'drawsBackground'); } catch (e) {}
@@ -498,7 +503,7 @@ function runWeb(argv) {
   // Trang khong hien trong 8 giay -> quay ve giao dien cu
   while (true) {
     var code = $.NSApplication.sharedApplication.runModalForWindow(WIN);
-    if (code == 2999) { timer.invalidate; WIN.orderOut(null); throw 'blank'; }
+    if (code == 2999) { timer.invalidate; WIN.orderOut(null); throw WSTATE.why || 'blank'; }
     if (code == 2003) {
       var msgx = jobRunning() ? 'Thoát app? Lượt đang chạy vẫn tiếp tục chạy nền, mở lại app để xem tiến độ.' : 'Bạn có chắc muốn thoát app không?';
       if (alertBox(msgx, ['Không', 'Thoát']) === 1) { timer.invalidate; WIN.orderOut(null); return ''; }
@@ -515,7 +520,12 @@ function run(argv) {
   app.activateIgnoringOtherApps(true);
   TGT = $.CVTarget.alloc.init;
   if (!exists(CONF + '/classic_ui')) {
-    try { return runWeb(argv); } catch (e) { if (WIN) { try { WIN.orderOut(null); } catch (x) {} } WV = null; }
+    try { return runWeb(argv); } catch (e) {
+      if (WIN) { try { WIN.orderOut(null); } catch (x) {} } WV = null;
+      var why = String(e) + (e && e.line ? ' (dòng ' + e.line + ')' : '');
+      writeText(CONF + '/ui_error.txt', why);
+      alertBox('Giao diện mới chưa mở được, app dùng tạm giao diện cũ.\n\nChụp màn hình bảng này gửi Claude để sửa:\n' + why, ['OK']);
+    }
   }
   return runClassic(argv, true);
 }

@@ -4,7 +4,7 @@ export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
 CONF="$HOME/Library/Application Support/StreamerCuttingVid"
 mkdir -p "$CONF"
-VER="1.32"
+VER="2.0"
 TITLE="CuttingVid by Louis Chu  ·  v$VER"
 ICON="$RES/AppIcon.icns"
 
@@ -59,7 +59,7 @@ if ! command -v yt-dlp >/dev/null || ! command -v ffmpeg >/dev/null; then
   [ "$r" = "Cài đặt" ] && in_terminal "bash $(printf '%q' "$RES/install.sh")"
   exit 0
 fi
-if [ -f "$CONF/running" ] && kill -0 "$(cat "$CONF/running" 2>/dev/null)" 2>/dev/null; then
+if [ -f "$CONF/classic_ui" ] && [ -f "$CONF/running" ] && kill -0 "$(cat "$CONF/running" 2>/dev/null)" 2>/dev/null; then
   msg "Đang có một lượt tải / cắt chạy. Đợi lượt đó xong (hoặc đóng cửa sổ Terminal của nó) rồi hãy làm tiếp, để YouTube không chặn."
   exit 0
 fi

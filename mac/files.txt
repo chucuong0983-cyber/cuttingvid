@@ -7,3 +7,5 @@ Resources/job.sh
 Resources/transcribe.sh
 Resources/AppIcon.icns
 Resources/asr.py
+Resources/ui.html
+Resources/run.sh

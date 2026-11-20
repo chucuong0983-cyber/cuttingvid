@@ -2,6 +2,7 @@
 // Chay bang: exec osascript -l JavaScript app.js RES CONF TITLE ICON
 // (exec de chinh app CuttingVid hien tren Dock voi logo, ghim duoc)
 ObjC.import('Cocoa');
+try { ObjC.import('WebKit'); } catch (e) {}
 
 function stopWith(c) { try { $.NSApplication.sharedApplication.stopModalWithCode(c); } catch (e) {} }
 ObjC.registerSubclass({
@@ -17,6 +18,7 @@ ObjC.registerSubclass({
         else if (i === 5) stopWith(2003);              // Thoat
       }
     },
+    'tick:': { types: ['void', ['id']], implementation: function (t) { try { if (typeof webTick === 'function') webTick(); } catch (e) {} } },
     'windowShouldClose:': { types: ['bool', ['id']], implementation: function (w) { stopWith(2003); return false; } }
   }
 });
@@ -199,7 +201,7 @@ function terminal(cmd) {
   T.doScript(cmd);
 }
 
-function run(argv) {
+function runClassic(argv) {
   RES = argv[0]; CONF = argv[1]; TITLE = argv[2];
   var app = $.NSApplication.sharedApplication;
   app.setActivationPolicy(0);
@@ -275,4 +277,245 @@ function run(argv) {
     terminal('bash ' + args.map(q).join(' '));
     return '';
   }
+}
+
+
+// ======================= GIAO DIEN MOI (WebKit, than chi + vang kim) =======================
+// Trang ui.html <-> app: trang dat document.title = "cv:<so>:<json lenh>", app doc title moi 0.2s,
+// xu ly roi goi CV.ack(). App gui du lieu vao trang bang evaluateJavaScript.
+var WV = null, WIN = null, SA = null, LASTT = '', TICKN = 0, RUNPID = '', WSTATE = null, STOPPING = false;
+var LOG = '';
+
+function js(code) { try { WV.evaluateJavaScriptCompletionHandler(code, null); } catch (e) {} }
+function sh(cmd) { try { return SA.doShellScript(cmd); } catch (e) { return ''; } }
+function readTail(p, n) {
+  var fh = $.NSFileHandle.fileHandleForReadingAtPath(p);
+  if (!fh || fh.isNil()) return '';
+  var size = Number(fh.seekToEndOfFile);
+  fh.seekToFileOffset(Math.max(0, size - n));
+  var d = fh.readDataToEndOfFile; fh.closeFile;
+  var str = $.NSString.alloc.initWithDataEncoding(d, $.NSUTF8StringEncoding);
+  if (!str || str.isNil()) str = $.NSString.alloc.initWithDataEncoding(d, $.NSISOLatin1StringEncoding);
+  return (str && !str.isNil()) ? str.js : '';
+}
+function cleanLog(t) {
+  t = t.replace(/\x1b\][^\x07]*\x07/g, '').replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').replace(/\r/g, '\n');
+  var L = t.split('\n').filter(function (x) { return x.trim() !== ''; });
+  return L.slice(-12).join('\n');
+}
+function readProg(slot) {
+  var t = readText(CONF + '/progress.' + slot);
+  return t ? t.split('\t') : null;
+}
+function pidAlive(pid) { return !!pid && sh('kill -0 ' + pid + ' 2>/dev/null && echo 1 || echo 0') === '1'; }
+
+// Kiem tra form -> {err} hoac {cmd: [...], txtOnly}
+function prepare(st) {
+  var local = isLocal(st.url);
+  if (!st.url) return { err: 'Hãy dán link YouTube hoặc bấm "Chọn file…".' };
+  if (!local && !/^https?:\/\//i.test(st.url)) return { err: 'Link không đúng, hoặc file trên máy không còn ở đó.' };
+  st.dir = (st.dir || '').replace(/\/+$/, '');
+  if (!isDir(st.dir)) return { err: 'Thư mục lưu không tồn tại. Bấm "Đổi…" để chọn lại.' };
+  var fromT = (st.from || '').replace(/\s/g, '') || '00:00:00', toT = (st.to || '').replace(/\s/g, '');
+  var from = toSec(fromT), fneg = fromT.charAt(0) === '-';
+  var tend = toT === '', to = tend ? 0 : toSec(toT), tneg = !tend && toT.charAt(0) === '-';
+  if (from === null || (!tend && to === null)) return { err: 'Mốc thời gian phải ghi dạng giờ:phút:giây, ví dụ 01:15:00 hoặc -4:31:41' };
+  if (local && (fneg || tneg)) return { err: 'Với file trên máy chỉ dùng số dương, tính từ đầu file.' };
+  if (!tend && !fneg && !tneg && to <= from) return { err: 'Mốc "đến" phải lớn hơn mốc "từ".' };
+  if (!tend && fneg && tneg && to >= from) return { err: 'Với số âm: mốc "từ" phải âm nhiều hơn mốc "đến". Ví dụ từ -4:31:41 đến -4:30:00' };
+  if (st.split && !(/^\d+$/.test(st.min) && +st.min >= 1)) return { err: 'Số phút mỗi phần phải là số, ví dụ 30' };
+  var name = (st.name || '').replace(/[\/:]/g, '-').replace(/\.(mp3|mp4)$/i, '').trim();
+  var type, h, exact = st.exact ? 1 : 0, idx = +st.idx;
+  if (idx === 0) { type = 'audio'; h = 1080; exact = 0; }
+  else if (local) { type = 'both'; h = [0, 99999, 480, 1080][idx]; }
+  else { type = 'both'; h = [0, 480, 1080, 1440][idx]; }
+  var splitMin = st.split ? +st.min : 0;
+  if (local && from === 0 && tend && type === 'both' && h === 99999 && !exact && !splitMin) {
+    if (st.txt) return { cmd: ['/bin/bash', RES + '/transcribe.sh', st.wmodel, 'auto', st.url], txtOnly: true };
+    return { err: 'Bạn đang lấy nguyên file, giữ nguyên chất lượng, không chia nhỏ: không có gì để cắt. Bật "Xuất phụ đề txt" nếu chỉ muốn quét lời nói.' };
+  }
+  return { cmd: ['/bin/bash', RES + '/job.sh', type, st.url, st.dir, from, to, fromT, toT || 'het', h, exact, splitMin, name,
+                 fneg ? 1 : 0, tneg ? 1 : 0, st.txt ? 1 : 0, tend ? 1 : 0, st.wmodel] };
+}
+
+// Chay nen (khong mo Terminal): nhom tien trinh rieng de nut "Dung" tat duoc ca yt-dlp / ffmpeg con
+function launchBg(cmd) {
+  LOG = CONF + '/job.log';
+  sh('cd ' + q($.NSHomeDirectory().js) + '; rm -f ' + q(CONF) + '/progress.*; nohup /usr/bin/perl -e ' + q('setpgrp(0,0); exec @ARGV') +
+     ' /bin/bash ' + q(RES + '/run.sh') + ' ' + cmd.map(q).join(' ') + ' > ' + q(LOG) + ' 2>&1 < /dev/null &');
+  for (var i = 0; i < 20 && !RUNPID; i++) { delay(0.1); RUNPID = readText(CONF + '/running'); }
+  js('CV.running()');
+}
+function jobRunning() {
+  var pid = readText(CONF + '/running');
+  return pidAlive(pid) ? pid : '';
+}
+
+function handle(m) {
+  var d = m.data || {};
+  switch (m.cmd) {
+    case 'paste': js('CV.set(' + JSON.stringify({ url: clip() || '' }) + ')'); break;
+    case 'file': {
+      var f = openPanel(false);
+      if (f) js('CV.set(' + JSON.stringify({ url: f, local: true }) + ')');
+      break;
+    }
+    case 'dir': {
+      var dd = openPanel(true);
+      if (dd) { writeText(CONF + '/folder', dd); js('CV.set(' + JSON.stringify({ dir: dd }) + ')'); }
+      break;
+    }
+    case 'opendir': if (isDir(d.dir)) $.NSWorkspace.sharedWorkspace.openFile(d.dir); break;
+    case 'openres': {
+      var r = readText(CONF + '/progress.result');
+      if (r && isDir(r)) $.NSWorkspace.sharedWorkspace.openFile(r);
+      else if (r && exists(r)) $.NSWorkspace.sharedWorkspace.selectFileInFileViewerRootedAtPath(r, '');
+      break;
+    }
+    case 'key': if (askGroqKey()) js('CV.set({hasKey:true});CV.toast("Đã lưu key Groq.",1)'); break;
+    case 'ytupdate':
+      sh('(PATH="' + CONF + '/bin:$PATH" yt-dlp -U > /dev/null 2>&1 &)');
+      js('CV.toast("Đang cập nhật yt-dlp ở nền (khoảng 1 phút). Xong thì thử tải lại.",1)');
+      break;
+    case 'showlog':
+      terminal('clear; tail -n 200 -f ' + q(CONF + '/job.log'));
+      break;
+    case 'cancel':
+      if (alertBox('Dừng lượt đang chạy? Phần nào đã xong vẫn giữ lại.', ['Không', 'Dừng']) === 1) {
+        var pid = readText(CONF + '/running');
+        if (pid) sh('kill -TERM -' + pid + ' 2>/dev/null; sleep 1; kill -KILL -' + pid + ' 2>/dev/null; true');
+        writeText(CONF + '/progress.main', '-2\tĐã dừng\tBạn đã dừng lượt này');
+        writeText(CONF + '/progress.done', '143');
+      }
+      break;
+    case 'multi': {
+      if (jobRunning()) { js('CV.toast("Đang có 1 lượt chạy. Đợi xong rồi làm tiếp nhé.")'); break; }
+      var fs = openPanel(false, true);
+      if (!fs.length) break;
+      var todo = fs.filter(function (f) { return !exists(f.replace(/\.[^.\/]+$/, '') + '.txt'); });
+      if (todo.length < fs.length) {
+        var c = alertBox((fs.length - todo.length) + ' / ' + fs.length + ' file đã có txt. Quét lại cả những file đó?', ['Chỉ quét file chưa có txt', 'Quét lại tất cả', 'Hủy']);
+        if (c === 2) break;
+        if (c === 1) todo = fs;
+      }
+      if (!todo.length) break;
+      var wm = readText(CONF + '/engine') || 'fw-fast';
+      if (wm === 'groq' && !readText(CONF + '/groq_key.txt') && !askGroqKey()) wm = 'fw-fast';
+      launchBg(['/bin/bash', RES + '/transcribe.sh', wm, 'auto'].concat(todo));
+      break;
+    }
+    case 'go': {
+      if (jobRunning()) { js('CV.toast("Đang có 1 lượt chạy. Đợi xong (hoặc bấm Dừng) rồi làm tiếp nhé.")'); break; }
+      var st = d;
+      var p = prepare(st);
+      if (p.err) { js('CV.toast(' + JSON.stringify(p.err) + ')'); break; }
+      if (st.txt && st.wmodel === 'groq' && !readText(CONF + '/groq_key.txt')) {
+        if (!askGroqKey()) { js('CV.toast("Chưa có key Groq nên lượt này quét trên máy.",1)'); p.cmd[p.cmd.length - 1] = 'fw-fast'; if (p.txtOnly) p.cmd[2] = 'fw-fast'; }
+        else js('CV.set({hasKey:true})');
+      }
+      writeText(CONF + '/folder', st.dir);
+      writeText(CONF + '/engine', st.wmodel);
+      launchBg(p.cmd);
+      break;
+    }
+    case 'quit':
+      stopWith(2003);
+      break;
+  }
+}
+
+function webTick() {
+  if (!WV) return;
+  TICKN++;
+  if (!WSTATE.sent && TICKN > 40) { stopWith(2999); return; }
+  var t = '';
+  try { t = WV.title.js; } catch (e) {}
+  if (t === 'ready' && !WSTATE.sent) {
+    WSTATE.sent = true;
+    js('CV.init(' + JSON.stringify(WSTATE.init) + ')');
+  }
+  if (t !== LASTT && t.indexOf('cv:') === 0) {
+    LASTT = t;
+    var m = null;
+    try { m = JSON.parse(t.slice(t.indexOf(':', 3) + 1)); } catch (e) {}
+    if (m) { try { handle(m); } catch (e) { js('CV.toast(' + JSON.stringify('Lỗi: ' + e) + ')'); } }
+    js('CV.ack()');
+  }
+  // Tien do: 2 lan / giay
+  if (TICKN % 3 === 0 && (RUNPID || exists(CONF + '/progress.main') || exists(CONF + '/progress.txt'))) {
+    var o = { main: readProg('main'), txt: readProg('txt'), log: cleanLog(readTail(CONF + '/job.log', 6000)) };
+    var done = readText(CONF + '/progress.done');
+    if (!done && RUNPID && TICKN % 15 === 0 && !pidAlive(RUNPID)) done = '1';
+    if (done) {
+      o.done = true; o.code = +done; o.result = readText(CONF + '/progress.result');
+      RUNPID = '';
+    }
+    if (RUNPID || done || !WSTATE.lastDone) js('CV.progress(' + JSON.stringify(o) + ')');
+    WSTATE.lastDone = !!done;
+  }
+}
+
+function runWeb(argv) {
+  if (typeof $.WKWebView === 'undefined' || !exists(RES + '/ui.html')) throw 'no webkit';
+  SA = Application.currentApplication(); SA.includeStandardAdditions = true;
+  var dir = readText(CONF + '/folder');
+  if (!isDir(dir)) dir = $.NSHomeDirectory().js + '/Desktop';
+  RUNPID = jobRunning();
+  WSTATE = { sent: false, lastDone: false, init: {
+    url: clip(), dir: dir, wmodel: readText(CONF + '/engine') || 'fw-fast', hasKey: !!readText(CONF + '/groq_key.txt'),
+    version: (TITLE.match(/v([0-9.]+)/) || [0, ''])[1], running: !!RUNPID, msg: argv[4] ? argv[4] + ' Những thay đổi mới đã có hiệu lực.' : '' } };
+  var W = 920, H = 820;
+  WIN = $.NSWindow.alloc.initWithContentRectStyleMaskBackingDefer($.NSMakeRect(0, 0, W, H), 1 | 2 | 4 | 8, 2, false);
+  WIN.setTitle(TITLE);
+  WIN.setTitlebarAppearsTransparent(true);
+  WIN.setTitleVisibility(1);
+  try { WIN.setAppearance($.NSAppearance.appearanceNamed('NSAppearanceNameDarkAqua')); } catch (e) {}
+  WIN.setBackgroundColor($.NSColor.colorWithSRGBRedGreenBlueAlpha(0.102, 0.114, 0.133, 1));
+  WIN.setMinSize($.NSMakeSize(820, 560));
+  WIN.setReleasedWhenClosed(false);
+  WIN.setDelegate(TGT);
+  var cfg = $.WKWebViewConfiguration.alloc.init;
+  WV = $.WKWebView.alloc.initWithFrameConfiguration($.NSMakeRect(0, 0, W, H), cfg);
+  try { WV.setValueForKey($(false), 'drawsBackground'); } catch (e) {}
+  WV.setAutoresizingMask(2 | 16);
+  WIN.contentView.addSubview(WV);
+  var u = $.NSURL.fileURLWithPath(RES + '/ui.html');
+  WV.loadFileURLAllowingReadAccessToURL(u, $.NSURL.fileURLWithPath(RES));
+  var timer = $.NSTimer.timerWithTimeIntervalTargetSelectorUserInfoRepeats(0.2, TGT, 'tick:', null, true);
+  $.NSRunLoop.currentRunLoop.addTimerForMode(timer, $.NSRunLoopCommonModes);
+  WIN.center;
+  WIN.makeKeyAndOrderFront(null);
+  // Menu Sua (de Command+C / V / A / Z dung duoc trong o nhap)
+  try {
+    var mb = $.NSMenu.alloc.init, ai = $.NSMenuItem.alloc.init, am = $.NSMenu.alloc.initWithTitle('CuttingVid');
+    am.addItemWithTitleActionKeyEquivalent('Thoát CuttingVid', 'terminate:', 'q'); ai.setSubmenu(am); mb.addItem(ai);
+    var em = $.NSMenu.alloc.initWithTitle('Sửa'), ei = $.NSMenuItem.alloc.init;
+    [['Hoàn tác', 'undo:', 'z'], ['Cắt', 'cut:', 'x'], ['Chép', 'copy:', 'c'], ['Dán', 'paste:', 'v'], ['Chọn tất cả', 'selectAll:', 'a']]
+      .forEach(function (a) { em.addItemWithTitleActionKeyEquivalent(a[0], a[1], a[2]); });
+    ei.setSubmenu(em); mb.addItem(ei);
+    $.NSApplication.sharedApplication.setMainMenu(mb);
+  } catch (e) {}
+  // Trang khong hien trong 8 giay -> quay ve giao dien cu
+  while (true) {
+    var code = $.NSApplication.sharedApplication.runModalForWindow(WIN);
+    if (code == 2999) { timer.invalidate; WIN.orderOut(null); throw 'blank'; }
+    if (code == 2003) {
+      var msgx = jobRunning() ? 'Thoát app? Lượt đang chạy vẫn tiếp tục chạy nền, mở lại app để xem tiến độ.' : 'Bạn có chắc muốn thoát app không?';
+      if (alertBox(msgx, ['Không', 'Thoát']) === 1) { timer.invalidate; WIN.orderOut(null); return ''; }
+    }
+  }
+}
+
+function run(argv) {
+  RES = argv[0]; CONF = argv[1]; TITLE = argv[2];
+  var app = $.NSApplication.sharedApplication;
+  app.setActivationPolicy(0);
+  var img = $.NSImage.alloc.initWithContentsOfFile(argv[3]);
+  if (img && !img.isNil()) { ICONIMG = img; app.setApplicationIconImage(img); }
+  app.activateIgnoringOtherApps(true);
+  TGT = $.CVTarget.alloc.init;
+  if (!exists(CONF + '/classic_ui')) {
+    try { return runWeb(argv); } catch (e) { if (WIN) { try { WIN.orderOut(null); } catch (x) {} } WV = null; }
+  }
+  return runClassic(argv, true);
 }

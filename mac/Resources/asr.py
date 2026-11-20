@@ -13,6 +13,21 @@ CONF = os.path.expanduser('~/Library/Application Support/StreamerCuttingVid')
 FFMPEG = os.environ.get('CV_FFMPEG', 'ffmpeg')
 
 
+def prog(p):
+    # Cap nhat thanh % trong cua so app (transcribe.sh dat CV_PBASE / CV_PSPAN cho tung file)
+    try:
+        b = int(os.environ.get('CV_PBASE', '')); sp = int(os.environ.get('CV_PSPAN', '0'))
+    except ValueError:
+        return
+    f = os.path.join(CONF, 'progress.txt')
+    try:
+        with open(f + '.t', 'w') as h:
+            h.write('%d\t%s\t%s\n' % (min(100, b + sp * p // 100), os.environ.get('CV_PLABEL', 'Phụ đề'), os.path.basename(sys.argv[3])))
+        os.replace(f + '.t', f)
+    except OSError:
+        pass
+
+
 def say(t):
     print(t, flush=True)
 
@@ -145,6 +160,7 @@ def run_groq(src, model):
                 res[futs[f]] = f.result()
                 done += 1
                 say('   Groq: da xong %d/%d doan 10 phut (%.0fs)' % (done, len(starts), time.time() - t0))
+                prog(100 * done // len(starts))
     except RuntimeError:
         shutil.rmtree(tmp, ignore_errors=True)
         return None
@@ -192,10 +208,11 @@ def run_fw(src, model):
     segs, t0, last = [], time.time(), 0
     for s in it:
         segs.extend(split_words(s))
-        if time.time() - last > 15:
+        if time.time() - last > 5:
             last = time.time()
             pct = 100.0 * s.end / total if total else 0
             say('   da quet %s / %s (%.0f%%)' % (hms(s.end), hms(total), pct))
+            prog(int(pct))
     say('   xong sau %.0f giay' % (time.time() - t0))
     return segs
 

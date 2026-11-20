@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8">
+<style>
+:root{--bg:#1A1D22;--side:#23272E;--card:#2B3038;--field:#20242A;--line:#3A404A;--gold:#C9A24A;--gold2:#E0BE6E;--ivory:#F7F6F2;--muted:#9AA1AB;--ok:#5DCAA5;--bad:#E8746B}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--ivory);font:13px -apple-system,"SF Pro Text","Helvetica Neue",sans-serif;-webkit-user-select:none;cursor:default;overflow:hidden}
+.app{display:grid;grid-template-columns:220px 1fr;height:100%}
+.side{background:var(--side);padding:16px 14px 16px;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:10px;margin:0 6px 26px}
+.brand b{font-size:15px;font-weight:600;letter-spacing:.2px}.brand small{display:block;color:var(--gold);font-size:11px;font-weight:500}
+.sec{color:var(--muted);font-size:11px;margin:0 8px 8px;letter-spacing:.4px}
+.nav{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:#D6D8DC;margin-bottom:2px}
+.nav:hover{background:#2E333B}.nav.on{background:linear-gradient(90deg,rgba(201,162,74,.22),rgba(201,162,74,.06));color:var(--gold2)}
+.nav svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.foot{margin-top:auto;color:#6F7681;font-size:11px;padding:0 8px;line-height:1.6}
+.main{padding:18px 30px 22px;overflow:auto}
+h1{font-size:20px;font-weight:600;margin-bottom:4px}.sub{color:var(--muted);margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:14px}
+label.l{display:block;color:var(--muted);font-size:11px;margin-bottom:6px;letter-spacing:.3px}
+input[type=text],select{width:100%;height:34px;background:var(--field);border:1px solid var(--line);border-radius:8px;color:var(--ivory);padding:0 11px;font:13px -apple-system,sans-serif;outline:none;-webkit-user-select:text}
+input[type=text]:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,74,.18)}
+.row{display:flex;gap:10px;align-items:flex-end}.row>*{flex:1}
+.btn{height:34px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:#323843;color:var(--ivory);font:500 13px -apple-system,sans-serif;white-space:nowrap;flex:0 0 auto}
+.btn:hover{border-color:var(--gold)}
+.go{width:100%;height:46px;border:0;border-radius:11px;background:linear-gradient(180deg,#D9B65F,#B88F38);color:#1E1A10;font:700 15px -apple-system,sans-serif;letter-spacing:.4px;box-shadow:0 6px 18px rgba(201,162,74,.25)}
+.go:hover{filter:brightness(1.07)}.go:active{transform:translateY(1px)}
+.hint{color:#7F8691;font-size:11px;margin-top:6px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 9px;border-radius:99px;background:rgba(201,162,74,.14);color:var(--gold2);margin-top:8px}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.opt{border:1px solid var(--line);background:var(--field);border-radius:9px;padding:8px 10px;line-height:1.35}
+.opt b{display:block;font-size:13px;font-weight:600}.opt span{color:var(--muted);font-size:11px}
+.opt.on{border-color:var(--gold);background:rgba(201,162,74,.12)}.opt.on b{color:var(--gold2)}
+.tg{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)}.tg:first-child{border-top:0;padding-top:0}
+.tg .t{flex:1}.tg .t b{display:block;font-weight:600}.tg .t span{color:var(--muted);font-size:11px}
+.sw{width:38px;height:22px;border-radius:99px;background:#444B56;position:relative;flex:0 0 auto;transition:.15s}
+.sw:after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#F7F6F2;transition:.15s}
+.sw.on{background:var(--gold)}.sw.on:after{left:19px}
+.tg select{width:230px;flex:0 0 auto}.tg input[type=text]{width:64px;text-align:center;flex:0 0 auto}
+.dim{opacity:.35;pointer-events:none}
+.bar{height:10px;border-radius:99px;background:#1C1F24;overflow:hidden;margin:8px 0 6px;border:1px solid #343A44}
+.bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#B88F38,#E9C978);transition:width .4s}
+.bar.ind i{width:35%;animation:ind 1.2s ease-in-out infinite}.bar.bad i{background:var(--bad);width:100%}
+@keyframes ind{0%{margin-left:-35%}100%{margin-left:100%}}
+.ph{display:flex;justify-content:space-between;align-items:baseline}.ph b{font-size:14px;font-weight:600}.ph em{font-style:normal;color:var(--gold2);font-weight:700;font-size:15px}
+.pd{color:var(--muted);font-size:12px;min-height:16px;word-break:break-all}
+.log{background:#16191D;border:1px solid #30353E;border-radius:9px;padding:10px 12px;font:11px Menlo,monospace;color:#AEB4BD;white-space:pre-wrap;word-break:break-all;max-height:150px;overflow:auto;-webkit-user-select:text}
+.acts{display:flex;gap:10px;margin-top:14px}.acts .btn{flex:1;height:38px}
+.btn.gold{background:var(--gold);color:#1E1A10;border-color:var(--gold)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#3A2A26;border:1px solid var(--bad);color:#FFD9D4;padding:10px 16px;border-radius:10px;max-width:520px;opacity:0;transition:.25s;pointer-events:none;line-height:1.45}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.hide{display:none!important}
+</style></head><body>
+<div class="app">
+ <div class="side">
+  <div class="brand">
+   <svg width="36" height="36" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="#23272E" stroke="#C9A24A" stroke-width="3"/><path d="M8 50 L56 14" stroke="#C9A24A" stroke-width="2"/><path d="M26 20 L46 32 L26 44 Z" fill="#F7F6F2"/></svg>
+   <div><b>CuttingVid</b><small>by Louis Chu</small></div>
+  </div>
+  <div class="sec">CÔNG CỤ</div>
+  <div class="nav on" id="nCut"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/></svg>Cắt video</div>
+  <div class="nav" data-cmd="multi"><svg viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/><path d="M9 13h6M9 17h4"/></svg>Quét phụ đề nhiều file</div>
+  <div class="nav" data-cmd="opendir"><svg viewBox="0 0 24 24"><path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2"/></svg>Mở thư mục lưu</div>
+  <div class="nav" data-cmd="key"><svg viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15L19 4M18 5l2 2M15 8l2 2"/></svg><span id="keyLbl">Key Groq</span></div>
+  <div class="nav" data-cmd="ytupdate"><svg viewBox="0 0 24 24"><path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"/></svg>Sửa lỗi tải (cập nhật yt-dlp)</div>
+  <div class="nav" data-cmd="quit"><svg viewBox="0 0 24 24"><path d="M14 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2v-2M9 12h12l-3-3m0 6l3-3"/></svg>Thoát</div>
+  <div class="foot" id="foot">v2.0</div>
+ </div>
+
+ <div class="main">
+  <!-- ===== FORM ===== -->
+  <div id="form">
+   <h1>Cắt video</h1><div class="sub">Dán link YouTube (đang live hay đã xong) hoặc chọn file trên máy.</div>
+   <div class="card">
+    <label class="l">LINK YOUTUBE / FILE TRÊN MÁY</label>
+    <div class="row"><input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." spellcheck="false"><button class="btn" data-cmd="paste">Dán</button><button class="btn" data-cmd="file">Chọn file…</button></div>
+    <div class="pill" id="srcPill">Link YouTube</div>
+   </div>
+   <div class="card">
+    <div class="row">
+     <div><label class="l">CẮT TỪ</label><input type="text" id="from" value="00:00:00"></div>
+     <div><label class="l">ĐẾN</label><input type="text" id="to" value="00:05:00" placeholder="trống = tới hết / hiện tại"></div>
+    </div>
+    <div class="hint" id="timeHint"></div>
+    <label class="l" style="margin-top:14px">LẤY</label>
+    <div class="seg" id="seg"></div>
+   </div>
+   <div class="card">
+    <div class="tg"><div class="t"><b>Xuất phụ đề txt</b><span>Mốc [giờ:phút:giây] tính theo buổi live</span></div>
+     <select id="eng"><option value="groq">Siêu nhanh qua mạng (Groq)</option><option value="fw-fast">Nhanh trên máy</option><option value="fw-acc">Chính xác trên máy (chậm)</option></select>
+     <div class="sw" id="swTxt"></div></div>
+    <div class="tg"><div class="t"><b>Chia nhỏ</b><span>Mỗi phần có file txt riêng</span></div>
+     <input type="text" id="min" value="30"><span style="color:var(--muted)">phút / phần</span><div class="sw" id="swSplit"></div></div>
+    <div class="tg"><div class="t"><b>Cắt chính xác từng giây</b><span>Chậm hơn, dùng khi cắt bản cuối</span></div><div class="sw" id="swExact"></div></div>
+   </div>
+   <div class="card">
+    <div class="row">
+     <div><label class="l">TÊN FILE (TRỐNG = TỰ ĐẶT THEO MỐC)</label><input type="text" id="name" spellcheck="false"></div>
+    </div>
+    <label class="l" style="margin-top:12px">LƯU VÀO</label>
+    <div class="row"><input type="text" id="dir" spellcheck="false"><button class="btn" data-cmd="dir">Đổi…</button></div>
+   </div>
+   <button class="go" id="goBtn">CẮT VÀ TẢI VỀ</button>
+  </div>
+
+  <!-- ===== TIEN DO ===== -->
+  <div id="prog" class="hide">
+   <h1 id="pTitle">Đang chạy…</h1><div class="sub">Có thể đóng app, lượt này vẫn chạy nền. Mở lại app để xem tiếp.</div>
+   <div class="card">
+    <div class="ph"><b id="m1">Đang chuẩn bị</b><em id="m1p"></em></div>
+    <div class="bar ind" id="b1"><i></i></div>
+    <div class="pd" id="m1d"></div>
+   </div>
+   <div class="card hide" id="c2">
+    <div class="ph"><b id="m2">Phụ đề</b><em id="m2p"></em></div>
+    <div class="bar" id="b2"><i></i></div>
+    <div class="pd" id="m2d"></div>
+   </div>
+   <div class="log" id="log"></div>
+   <div class="acts">
+    <button class="btn" data-cmd="showlog">Xem chi tiết</button>
+    <button class="btn" data-cmd="cancel" id="bCancel">Dừng lượt này</button>
+    <button class="btn gold hide" data-cmd="openres" id="bOpen">Mở thư mục kết quả</button>
+    <button class="btn hide" id="bNew">Làm lượt mới</button>
+   </div>
+  </div>
+ </div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+var $=function(i){return document.getElementById(i)};
+var S={txt:false,split:false,exact:false,idx:1};
+var WEB=['Chỉ tiếng|MP3','480p|nhẹ, để dò','1080p|nét','2K 1440p|bản đẹp'];
+var LOC=['Chỉ tiếng|MP3','Giữ nguyên|chất lượng gốc','Thu nhỏ 480p|nhẹ hơn','Thu nhỏ 1080p|nét'];
+var q=[],busy=false,seq=0;
+function send(cmd,data){q.push({cmd:cmd,data:data||{}});pump()}
+function pump(){if(busy||!q.length)return;busy=true;var m=q.shift();document.title='cv:'+(++seq)+':'+JSON.stringify(m)}
+var CV={
+ ack:function(){busy=false;pump()},
+ init:function(o){for(var k in o)S[k]=o[k];$('url').value=S.url||'';$('dir').value=S.dir||'';$('eng').value=S.wmodel||'fw-fast';
+  $('foot').innerHTML='v'+(S.version||'')+'<br>Tắt app mở lại để cập nhật';$('keyLbl').textContent=S.hasKey?'Đổi key Groq':'Nhập key Groq';
+  sw();src();if(o.running)CV.running();if(o.msg)CV.toast(o.msg,1)},
+ set:function(o){if(o.url!=null){$('url').value=o.url;if(o.local&&$('to').value==='00:05:00')$('to').value='';src()}
+  if(o.dir!=null)$('dir').value=o.dir;if(o.hasKey!=null){S.hasKey=o.hasKey;$('keyLbl').textContent=o.hasKey?'Đổi key Groq':'Nhập key Groq'}},
+ toast:function(t,good){var e=$('toast');e.textContent=t;e.style.borderColor=good?'#C9A24A':'';e.style.background=good?'#2E2A1E':'';e.style.color=good?'#F2DFAE':'';e.classList.add('show');clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('show')},good?3500:6500)},
+ running:function(){$('form').classList.add('hide');$('prog').classList.remove('hide');$('pTitle').textContent='Đang chạy…';
+  ['bOpen','bNew'].forEach(function(i){$(i).classList.add('hide')});$('bCancel').classList.remove('hide');$('c2').classList.add('hide');setBar('b1','m1p',-1);$('m1').textContent='Đang chuẩn bị';$('m1d').textContent='';$('log').textContent=''},
+ progress:function(p){
+  if(p.main){$('m1').textContent=p.main[1]||'';$('m1d').textContent=p.main[2]||'';setBar('b1','m1p',+p.main[0])}
+  if(p.txt){$('c2').classList.remove('hide');$('m2').textContent=p.txt[1]||'Phụ đề';$('m2d').textContent=p.txt[2]||'';setBar('b2','m2p',+p.txt[0])}
+  if(p.log!=null){var l=$('log');var end=l.scrollTop+l.clientHeight>=l.scrollHeight-4;l.textContent=p.log;if(end)l.scrollTop=l.scrollHeight}
+  if(p.done){var bad=p.code!=0||(p.main&&+p.main[0]===-2);$('pTitle').textContent=bad?'Có lỗi, chưa xong':'Xong rồi!';
+   $('bCancel').classList.add('hide');$('bNew').classList.remove('hide');if(p.result)$('bOpen').classList.remove('hide');
+   if(!bad){if(p.main&&+p.main[0]===-1)setBar('b1','m1p',100);if(p.txt&&+p.txt[0]===-1)setBar('b2','m2p',100)}}}
+};
+function setBar(b,pl,v){var e=$(b);e.classList.remove('ind','bad');
+ if(v===-1){e.classList.add('ind');$(pl).textContent='';return}
+ if(v===-2){e.classList.add('bad');$(pl).textContent='lỗi';return}
+ v=Math.max(0,Math.min(100,v||0));e.firstChild.style.width=v+'%';$(pl).textContent=Math.round(v)+'%'}
+function isLocal(){var u=$('url').value.trim();return u!==''&&!/^https?:\/\//i.test(u)}
+function src(){var loc=isLocal();var it=loc?LOC:WEB;var h='';
+ for(var i=0;i<4;i++){var a=it[i].split('|');h+='<div class="opt'+(i===S.idx?' on':'')+'" data-i="'+i+'"><b>'+a[0]+'</b><span>'+a[1]+'</span></div>'}
+ $('seg').innerHTML=h;$('srcPill').textContent=loc?'File trên máy':'Link YouTube';
+ $('timeHint').textContent=loc?'giờ:phút:giây tính từ đầu file. Trống ô "đến" = tới hết file.':'Đang live: gõ số âm như YouTube (vd -4:31:41). Trống ô "đến" = tới hiện tại / hết video.';
+ $('goBtn').textContent=loc?'CẮT':'CẮT VÀ TẢI VỀ';
+ $('swExact').parentNode.classList.toggle('dim',S.idx===0)}
+function sw(){$('swTxt').classList.toggle('on',S.txt);$('swSplit').classList.toggle('on',S.split);$('swExact').classList.toggle('on',S.exact);
+ $('eng').classList.toggle('dim',!S.txt);$('min').classList.toggle('dim',!S.split)}
+$('seg').addEventListener('click',function(e){var o=e.target.closest('.opt');if(!o)return;S.idx=+o.dataset.i;src()});
+$('swTxt').onclick=function(){S.txt=!S.txt;sw()};$('swSplit').onclick=function(){S.split=!S.split;sw()};$('swExact').onclick=function(){S.exact=!S.exact;sw()};
+$('url').addEventListener('input',src);
+$('nCut').onclick=function(){if(!$('bNew').classList.contains('hide')||$('prog').classList.contains('hide'))$('bNew').onclick();else CV.toast('Đang có 1 lượt chạy. Bấm Dừng nếu muốn làm lượt khác.')};
+$('bNew').onclick=function(){$('prog').classList.add('hide');$('form').classList.remove('hide')};
+document.addEventListener('click',function(e){var t=e.target.closest('[data-cmd]');if(t)send(t.dataset.cmd,{dir:$('dir').value})});
+$('goBtn').onclick=function(){send('go',{url:$('url').value.trim(),from:$('from').value,to:$('to').value,idx:S.idx,txt:S.txt,wmodel:$('eng').value,exact:S.exact,split:S.split,min:$('min').value,name:$('name').value,dir:$('dir').value.trim()})};
+document.addEventListener('keydown',function(e){if(e.key==='Enter'&&!$('form').classList.contains('hide')&&e.target.tagName==='INPUT')$('goBtn').click()});
+document.title='ready';
+</script></body></html>

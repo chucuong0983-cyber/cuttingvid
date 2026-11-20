@@ -10,6 +10,7 @@ export PATH="$HOME/Library/Application Support/StreamerCuttingVid/bin:/usr/local
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/common.sh"
 MODEL="${1:-fw-fast}"; OFFMODE="${2:-auto}"; shift 2
+export CV_PSLOT=txt
 ENGINE=cpp; PYMODEL=""; CPPMODEL="$MODEL"
 case "$MODEL" in
   groq)    ENGINE=groq; PYMODEL=whisper-large-v3-turbo; CPPMODEL=base.en;;
@@ -95,6 +96,8 @@ for IN in "$@"; do
   if [ "$OFFMODE" = auto ]; then OFF=$(auto_offset "$IN"); else OFF="$OFFMODE"; fi
   echo
   echo "${C}[$i/$total] Đang quét: $bn${N}"
+  export CV_PBASE=$(( (i - 1) * 100 / total )) CV_PSPAN=$(( 100 / total )) CV_PLABEL="Phụ đề · phần $i/$total"
+  P "$CV_PBASE" "$CV_PLABEL" "$bn"
   echo "${C}    Mốc trong txt sẽ tính từ $(fmt "$OFF") của buổi live${N}"
   if [ "$ENGINE" != cpp ]; then
     t0=$(date +%s)
@@ -147,9 +150,10 @@ for IN in "$@"; do
 done
 echo
 if [ $okc -gt 0 ]; then
+  P 100 "Phụ đề xong" "$okc / $total file"; [ -n "$1" ] && PRESULT "$(dirname "$1")"
   echo "${G}XONG! Đã tạo phụ đề cho $okc / $total file (txt + srt nằm cạnh file gốc).${N}"
   echo "${Y}Gửi file .txt cho Claude để phân tích lời thoại.${N}"
   [ -n "$1" ] && [ -z "$CV_NOOPEN" ] && open -R "$(dirname "$1")/$(basename "${1%.*}").txt" 2>/dev/null
 else
-  echo "${R}Không tạo được phụ đề nào.${N}"
+  echo "${R}Không tạo được phụ đề nào.${N}"; P -2 "Không tạo được phụ đề" "Bấm Xem chi tiết để xem lỗi"
 fi

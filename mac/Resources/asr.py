@@ -154,6 +154,27 @@ def run_groq(src, model):
 
 
 # ---------------- faster-whisper ----------------
+def split_words(s):
+    # Che do quet theo lo gop ca doan ~30s thanh 1 dong -> tach lai thanh cau ngan
+    # (het cau . ? !, ngung > 0.7s, hoac dai qua 8s) de moc gio sat voi hinh.
+    words = getattr(s, 'words', None) or []
+    if not words:
+        return [(s.start, s.end, s.text)]
+    out, cur, st = [], [], None
+    for i, w in enumerate(words):
+        if st is None:
+            st = w.start
+        cur.append(w.word)
+        nxt = words[i + 1] if i + 1 < len(words) else None
+        txt = w.word.strip()
+        brk = (nxt is None or txt[-1:] in '.?!' or (nxt.start - w.end) > 0.7
+               or (w.end - st) > 8 or ((w.end - st) > 4 and txt[-1:] == ','))
+        if brk:
+            out.append((st, w.end, ''.join(cur).strip()))
+            cur, st = [], None
+    return out
+
+
 def run_fw(src, model):
     try:
         from faster_whisper import WhisperModel
@@ -161,7 +182,7 @@ def run_fw(src, model):
         return 'NO'
     say('   faster-whisper: dang nap model %s (lan dau se tai ve)...' % model)
     m = WhisperModel(model, device='cpu', compute_type='int8', cpu_threads=os.cpu_count() or 4)
-    kw = dict(language='en', vad_filter=True, beam_size=1, condition_on_previous_text=False)
+    kw = dict(language='en', vad_filter=True, beam_size=1, condition_on_previous_text=False, word_timestamps=True)
     try:
         from faster_whisper import BatchedInferencePipeline
         it, info = BatchedInferencePipeline(model=m).transcribe(src, batch_size=8, **kw)
@@ -170,7 +191,7 @@ def run_fw(src, model):
     total = getattr(info, 'duration', 0) or duration(src)
     segs, t0, last = [], time.time(), 0
     for s in it:
-        segs.append((s.start, s.end, s.text))
+        segs.extend(split_words(s))
         if time.time() - last > 15:
             last = time.time()
             pct = 100.0 * s.end / total if total else 0

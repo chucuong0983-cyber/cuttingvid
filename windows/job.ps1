@@ -14,6 +14,34 @@ $MD = Join-Path $CONF 'models'
 New-Item -ItemType Directory -Force -Path $BIN, $MD | Out-Null
 $env:Path = "$BIN;$(Join-Path $BIN 'whisper');$env:Path"
 $lock = Join-Path $env:APPDATA 'StreamerCuttingVid\running.txt'
+# ---- Tien do cho cua so app (progress.main / progress.txt / progress.result / progress.done + job.log) ----
+$PDIR = Join-Path $env:APPDATA 'StreamerCuttingVid'
+New-Item -ItemType Directory -Force -Path $PDIR | Out-Null
+$BG = [bool]$P.bg
+if ($BG) {
+    Get-ChildItem -LiteralPath $PDIR -Filter 'progress.*' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    try { Start-Transcript -LiteralPath (Join-Path $PDIR 'job.log') -Force | Out-Null } catch {}
+}
+function P($pct, [string]$lab, [string]$det = '', [string]$slot = 'main') {
+    $f = Join-Path $PDIR "progress.$slot"
+    try { [IO.File]::WriteAllText("$f.t", "$pct`t$lab`t$det", (New-Object System.Text.UTF8Encoding($false))); Move-Item -LiteralPath "$f.t" -Destination $f -Force } catch {}
+}
+function PResult([string]$path) { try { [IO.File]::WriteAllText((Join-Path $PDIR 'progress.result'), $path, (New-Object System.Text.UTF8Encoding($false))) } catch {} }
+# Doc output yt-dlp / ffmpeg: in dong thuong, cap nhat % theo "xx%" hoac "time=HH:MM:SS" / tong so giay
+function PPipe([string]$lab, [int]$tot, [string]$det = '') {
+    begin { $last = [datetime]::MinValue; $lastp = [datetime]::MinValue; $lp = $null }
+    process {
+        $l = "$_"; $pct = $null
+        if ($tot -gt 0 -and $l -match 'time=(\d+):(\d\d):(\d\d)') { $pct = [int][math]::Floor(([int]$Matches[1] * 3600 + [int]$Matches[2] * 60 + [int]$Matches[3]) * 100 / $tot) }
+        elseif ($l -match '\[download\]\s+(\d+)(\.\d+)?%') { $pct = [int]$Matches[1] }
+        if ($null -eq $pct) { if ($l.Trim()) { Write-Host $l }; return }
+        if ($pct -gt 100) { $pct = 100 }
+        $lp = $pct; $now = Get-Date
+        if (($now - $last).TotalSeconds -ge 1) { $last = $now; P $pct $lab $det }
+        if (($now - $lastp).TotalSeconds -ge 10) { $lastp = $now; Write-Host $l }
+    }
+    end { if ($null -ne $lp) { P $lp $lab $det } }
+}
 
 $type = $P.type; $url = $P.url; $dir = $P.dir
 $from = [int]$P.from; $to = [int]$P.to; $fromTxt = $P.fromTxt; $toTxt = $P.toTxt
@@ -84,6 +112,7 @@ function FSize([string]$p) {
     try { $fs = [System.IO.File]::Open($p, 'Open', 'Read', 'ReadWrite'); $n = $fs.Length; $fs.Close(); return $n } catch { return 0 }
 }
 function Hints {
+    P -2 'Không làm được' 'Bấm Xem chi tiết để xem lỗi (thường do YouTube chặn tạm hoặc link sai)'
     Say '- Neu thay loi 429 / "not a bot": YouTube dang chan tam mang cua ban. Doi vai tieng hoac doi mang (4G) roi thu lai.' Yellow
     Say '- Co the streamer tat tua lai (DVR). Khi do chi lay duoc sau khi live xong.' Yellow
     Say '- Thu bam dong "cap nhat yt-dlp" trong app roi tai lai.' Yellow
@@ -209,9 +238,12 @@ function Transcribe-Files($files, $offsets) {
     if ($ENG -eq 'groq') { Say 'Cach quet: Groq qua mang (whisper-large-v3-turbo, rat nhanh)' } elseif (-not (Ensure-Whisper)) { return }
     for ($k = 0; $k -lt $files.Count; $k++) {
         Say "[$($k + 1)/$($files.Count)] Dang quet phu de: $(Split-Path -Leaf $files[$k]) (moc tu $(Fmt $offsets[$k]))"
+        P ([int]($k * 100 / $files.Count)) "Phụ đề · phần $($k + 1)/$($files.Count)" (Split-Path -Leaf $files[$k]) 'txt'
         $w = Start-Whisper $files[$k] $offsets[$k]
         if ($w) { $w.proc.WaitForExit(); Finish-Whisper $w }
     }
+    P 100 'Phụ đề xong' "$($files.Count) file" 'txt'
+    if ($files.Count -gt 0) { PResult (Split-Path -Parent $files[0]) }
 }
 
 function Done([string]$full) {
@@ -222,18 +254,20 @@ function Done([string]$full) {
         $pd = Join-Path (Split-Path -Parent $full) ($pbase + ' (chia nho)')
         New-Item -ItemType Directory -Force -Path $pd | Out-Null
         Set-Content -LiteralPath (Join-Path $pd '.scv_info') -Value @("start=$absFrom", "split=$split") -Encoding ASCII
-        Say "Dang chia nho moi phan $split phut..."
+        Say "Dang chia nho moi phan $split phut..."; P -1 'Đang chia nhỏ' "mỗi phần $split phút"
         $pat = Join-Path $pd (($pbase -replace '%', '%%') + ' %02d.' + $ext)
         & ffmpeg -hide_banner -loglevel error -y -i $full -map 0 -c copy -f segment -segment_time ($split * 60) -segment_start_number 1 -reset_timestamps 1 -segment_list (Join-Path $pd '.scv_parts.csv') -segment_list_type csv $pat
         $parts = @(Get-ChildItem -LiteralPath $pd -File -Filter "*.$ext" | Sort-Object Name)
         if ($parts.Count -gt 0) {
             Say "Da chia thanh $($parts.Count) phan trong thu muc: $pd" Green
+            P 100 'Xong' "$($parts.Count) phần"; PResult $pd
             if ($txt) { Transcribe-Files @($parts.FullName) @($parts.FullName | ForEach-Object { Auto-Offset $_ }) }
             Start-Process explorer.exe -ArgumentList ('"' + $pd + '"')
             return
         }
         Say 'Chia nho bi loi, file day du van con nguyen.' Red
     }
+    P 100 'Xong' (Split-Path -Leaf $full); PResult $full
     if ($txt) { Transcribe-Files @($full) @($absFrom) }
     Start-Process explorer.exe -ArgumentList ('/select,"' + $full + '"')
 }
@@ -242,7 +276,7 @@ function Done([string]$full) {
 $status = ''; $rts = ''; $vdurV = ''
 $isLocal = ($url -notmatch '^https?://') -and (Test-Path -LiteralPath $url -PathType Leaf)
 if ($isLocal) { $status = 'local' } else {
-    Say 'Dang kiem tra link...'
+    Say 'Dang kiem tra link...'; P -1 'Đang kiểm tra link' $url
     for ($try = 1; $try -le 2; $try++) {
         $all = @(& yt-dlp --no-warnings --print live_status --print release_timestamp --print duration $url 2>&1)
         $outL = @($all | Where-Object { $_ -is [string] } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -285,9 +319,9 @@ if ($name) { $outName = "$name (tu $tag)" } else { $outName = "cut $tag $stamp" 
 if (Test-Path -LiteralPath "$outName.$ext") { $outName = "$outName $stamp" }
 
 if (-not $status) {
-    Say 'Khong doc duoc link. Kiem tra lai link YouTube.' Red; Hints
+    Say 'Khong doc duoc link. Kiem tra lai link YouTube.' Red; Hints; P -2 'Không đọc được link' 'Kiểm tra lại link YouTube (hoặc YouTube đang chặn tạm)'
 } elseif (-not $ok) {
-    Hints
+    Hints; P -2 'Mốc thời gian chưa đúng' 'Bấm Xem chi tiết để biết lý do'
 } elseif ($status -eq 'local' -and [bool]$P.only_txt) {
     # ---- CHI QUET PHU DE CHO FILE CO SAN ----
     $fl = @($url); if ($P.files) { $fl = @($P.files) }
@@ -297,23 +331,23 @@ if (-not $status) {
 } elseif ($status -eq 'local') {
     # ---- FILE CO SAN TREN MAY ----
     Say "File tren may: $url"
-    Say "Dang cat doan $(Fmt $from) den $(Fmt $to) ..."
+    Say "Dang cat doan $(Fmt $from) den $(Fmt $to) ..."; P 0 'Đang cắt' "$(Fmt $from) → $(Fmt $to)"
     $out = "$outName.$ext"
     if ($type -eq 'audio') {
-        & ffmpeg @FF -ss $from -i $url -t $dur -vn -c:a libmp3lame -q:a 0 $out
+        & ffmpeg @FF -ss $from -i $url -t $dur -vn -c:a libmp3lame -q:a 0 $out 2>&1 | PPipe 'Đang cắt' $dur
     } else {
         $srcH = 0
         $hp = (& ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 $url 2>$null | Select-Object -First 1)
         if ($hp -match '^(\d+)') { $srcH = [int]$Matches[1] }
         if (-not $exact -and ($srcH -eq 0 -or $srcH -le $h)) {
-            & ffmpeg @FF -ss $from -i $url -t $dur -map '0:v:0?' -map '0:a:0?' -c copy $out
+            & ffmpeg @FF -ss $from -i $url -t $dur -map '0:v:0?' -map '0:a:0?' -c copy $out 2>&1 | PPipe 'Đang cắt' $dur
         } else {
             $vf = @(); if ($srcH -gt $h) { $vf = @('-vf', "scale=-2:$h"); Say "Thu nho tu ${srcH}p xuong ${h}p..." Yellow }
-            & ffmpeg @FF -ss $from -i $url -t $dur -map '0:v:0?' -map '0:a:0?' @vf -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k $out
+            & ffmpeg @FF -ss $from -i $url -t $dur -map '0:v:0?' -map '0:a:0?' @vf -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k $out 2>&1 | PPipe 'Đang cắt (mã hóa lại)' $dur
         }
     }
     $full = Join-Path (Get-Location).Path $out
-    if ((FSize $full) -gt 1000) { Done $full } else { Say 'Cat file bi loi. Chup man hinh cua so nay de kiem tra.' Red }
+    if ((FSize $full) -gt 1000) { Done $full } else { Say 'Cat file bi loi. Chup man hinh cua so nay de kiem tra.' Red; P -2 'Cắt file bị lỗi' 'Bấm Xem chi tiết rồi chụp màn hình gửi Claude' }
 
 } elseif ($status -eq 'is_live' -or $status -eq 'post_live') {
     # ---- DANG LIVE: tai tu dau live toi moc "den", tai du phan nao cat phan do ----
@@ -322,9 +356,10 @@ if (-not $status) {
     $sel = '140/bestaudio'
     if ($type -ne 'audio') { $sel = "bv*[height<=$h][vcodec^=avc1]+140/bv*[height<=$h]+140/bv*+ba" }
     Say 'Video DANG LIVE.'
-    Say "Buoc 1/2: tai tu dau buoi live den moc $(Fmt $to) ..."
+    Say "Buoc 1/2: tai tu dau buoi live den moc $(Fmt $to) ..."; P 0 'Đang tải live' "từ đầu buổi tới $(Fmt $to)"
     Say '(doan cang xa dau live cang lau; neu moc "den" chua toi, app se cho live phat toi do)' Yellow
-    $ytArgs = "--live-from-start $SAFE -f `"$sel`" --no-part --no-mtime -o `"$base.%(ext)s`" `"$url`""
+    $np = ''; if ($BG) { $np = '--no-progress ' }
+    $ytArgs = "$np--live-from-start $SAFE -f `"$sel`" --no-part --no-mtime -o `"$base.%(ext)s`" `"$url`""
     $p = Start-Process yt-dlp -ArgumentList $ytArgs -NoNewWindow -PassThru
     function Find-Aud { Get-ChildItem -LiteralPath . -File | Where-Object { ($_.Name -like "$base.f140.*" -or $_.Name -eq "$base.m4a") -and $_.Name -notmatch 'ytdl$|Frag' } | Select-Object -First 1 }
     function Find-Vid { Get-ChildItem -LiteralPath . -File | Where-Object { $_.Name -like "$base.f*.*" -and $_.Name -notlike "$base.f140.*" -and $_.Name -notmatch 'ytdl$|Frag' } | Select-Object -First 1 }
@@ -349,6 +384,7 @@ if (-not $status) {
             if ($type -eq 'audio') { & ffmpeg -hide_banner -loglevel error -y -ss $ps -i $a.FullName -t ($pe - $ps) -vn -c:a libmp3lame -q:a 0 $pf }
             else { & ffmpeg -hide_banner -loglevel error -y -ss $ps -i $v.FullName -ss $ps -i $a.FullName -t ($pe - $ps) -map 0:v:0 -map 1:a:0 @VENC @AENC $pf }
             if ((FSize $pf) -gt 1000) {
+                $script:ncut = $script:pnext
                 Add-Content -LiteralPath (Join-Path $pd '.scv_parts.csv') -Value "$pbase $pn.$ext,$($ps - $from)" -Encoding UTF8
                 Write-Host ''; Say ">> Xong phan $pn ($(Fmt $ps) - $(Fmt $pe)): $pf" Green
                 if ($txt) { $script:queue.Enqueue([pscustomobject]@{ f = $pf; off = $ps }) }
@@ -362,20 +398,23 @@ if (-not $status) {
         if ($script:queue.Count -gt 0) {
             $n = $script:queue.Dequeue()
             Say ">> Dang tao phu de: $(Split-Path -Leaf $n.f) (chay nen)"
+            $script:ntxt++; P -1 "Phụ đề · phần $($script:ntxt)" (Split-Path -Leaf $n.f) 'txt'
             $script:cur = Start-Whisper $n.f $n.off
         }
     }
 
-    $need = $to + 20; $aok = $false; $vok = ($type -eq 'audio'); $tick = 0
+    $need = $to + 20; $aok = $false; $vok = ($type -eq 'audio'); $tick = 0; $script:ncut = 0; $script:ntxt = 0
     while (-not $p.HasExited) {
         Start-Sleep -Seconds 2; $tick++
+        $xtra = ''; if ($prog) { $xtra = " · đã cắt $($script:ncut) phần" }
         if (-not $aok) {
             $a = Find-Aud
+            if ($a) { P ([int]((FSize $a.FullName) * 100 / $limit)) 'Đang tải live' "từ đầu buổi tới $(Fmt $to)$xtra" }
             if ($a -and (FSize $a.FullName) -ge $limit) { $aok = $true; if (-not $vok) { Write-Host ''; Say "Tieng da du, dang doi phan hinh tai toi $(Fmt $to)..." } }
         }
         if (-not $vok -and ($tick % 15) -eq 0) {
             $v = Find-Vid
-            if ($v) { $d = VDur $v.FullName; if ($d -ge $need) { $vok = $true }; if ($aok -and -not $vok) { Say "   Hinh da tai toi $(Fmt $d) / $(Fmt $to)" Yellow } }
+            if ($v) { $d = VDur $v.FullName; if ($d -ge $need) { $vok = $true }; if ($aok) { P ([int]($d * 100 / $need)) 'Đang tải hình' "$(Fmt $d) / $(Fmt $to)$xtra" }; if ($aok -and -not $vok) { Say "   Hinh da tai toi $(Fmt $d) / $(Fmt $to)" Yellow } }
         }
         if ($prog -and ($tick % 30) -eq 0) {
             $a = Find-Aud
@@ -399,44 +438,48 @@ if (-not $status) {
     if (-not $src -or (FSize $src.FullName) -lt 10000) {
         Say 'Khong tai duoc.' Red; Hints
     } elseif ($prog) {
-        Say 'Cat cac phan con lai...'
+        Say 'Cat cac phan con lai...'; P -1 'Đang cắt các phần còn lại' ''
         Cut-Parts 999999 $true
         if ($txt) {
-            Say 'Doi tao xong phu de cac phan con lai (co the lau, dung dong cua so)...'
+            Say 'Doi tao xong phu de cac phan con lai (co the lau, dung dong cua so)...'; P 100 'Đã cắt xong, đợi phụ đề' $pd
             while ($cur -or $queue.Count -gt 0) { Txt-Worker; Start-Sleep -Seconds 5 }
         }
         Get-ChildItem -LiteralPath . -File | Where-Object { $_.Name.StartsWith($base) } | Remove-Item -Force -ErrorAction SilentlyContinue
         $n = @(Get-ChildItem -LiteralPath $pd -File -Filter "*.$ext").Count
         Write-Host ''; Say "XONG! $n phan trong thu muc: $pd" Green
         if ($txt) { Say 'Moi phan co file .txt cung ten (moc tinh theo buoi live).' Yellow }
+        P 100 'Xong' "$n phần"; PResult $pd; if ($txt) { P 100 'Phụ đề xong' "$n phần" 'txt' }
         Start-Process explorer.exe -ArgumentList ('"' + $pd + '"')
     } else {
-        Say "Buoc 2/2: cat doan $(Fmt $from) den $(Fmt $to) ..."
+        Say "Buoc 2/2: cat doan $(Fmt $from) den $(Fmt $to) ..."; P 0 'Đang cắt' "$(Fmt $from) → $(Fmt $to)"
         $out = "$outName.$ext"
-        if ($type -eq 'audio') { & ffmpeg @FF -ss $from -i $aud.FullName -t $dur -vn -c:a libmp3lame -q:a 0 $out }
-        elseif ($aud) { & ffmpeg @FF -ss $from -i $vid.FullName -ss $from -i $aud.FullName -t $dur -map 0:v:0 -map 1:a:0 @VENC @AENC $out }
-        else { & ffmpeg @FF -ss $from -i $vid.FullName -t $dur @VENC @AENC $out }
+        if ($type -eq 'audio') { & ffmpeg @FF -ss $from -i $aud.FullName -t $dur -vn -c:a libmp3lame -q:a 0 $out 2>&1 | PPipe 'Đang cắt' $dur }
+        elseif ($aud) { & ffmpeg @FF -ss $from -i $vid.FullName -ss $from -i $aud.FullName -t $dur -map 0:v:0 -map 1:a:0 @VENC @AENC $out 2>&1 | PPipe 'Đang cắt' $dur }
+        else { & ffmpeg @FF -ss $from -i $vid.FullName -t $dur @VENC @AENC $out 2>&1 | PPipe 'Đang cắt' $dur }
         $full = Join-Path (Get-Location).Path $out
         if ((FSize $full) -gt 1000) {
             Get-ChildItem -LiteralPath . -File | Where-Object { $_.Name.StartsWith($base) } | Remove-Item -Force -ErrorAction SilentlyContinue
             Done $full
-        } else { Say 'Cat file bi loi. Chup man hinh cua so nay de kiem tra.' Red }
+        } else { Say 'Cat file bi loi. Chup man hinh cua so nay de kiem tra.' Red; P -2 'Cắt file bị lỗi' 'Bấm Xem chi tiết rồi chụp màn hình gửi Claude' }
     }
 
 } else {
     # ---- VIDEO THUONG / LIVE DA XONG: chi tai dung doan ----
-    Say "Video thuong / live da xong. Dang tai doan $(Fmt $from) den $(Fmt $to) ..."
+    Say "Video thuong / live da xong. Dang tai doan $(Fmt $from) den $(Fmt $to) ..."; P 0 'Đang tải' "$(Fmt $from) → $(Fmt $to)"
     $o = $outName.Replace('%', '%%') + '.%(ext)s'
     $sec = "*$from-$to"
     if ($type -eq 'audio') {
-        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 -x --audio-format mp3 --audio-quality 0 --no-mtime --download-sections $sec -o $o $url
+        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 -x --audio-format mp3 --audio-quality 0 --no-mtime --newline --download-sections $sec -o $o $url 2>&1 | PPipe 'Đang tải' $dur
     } else {
         $fk = @(); if ($exact) { $fk = @('--force-keyframes-at-cuts') }
-        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 @fk -f "bv*[height<=$h][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=$h]+ba/b" --merge-output-format mp4 --no-mtime --download-sections $sec -o $o $url
+        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 @fk -f "bv*[height<=$h][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=$h]+ba/b" --merge-output-format mp4 --no-mtime --newline --download-sections $sec -o $o $url 2>&1 | PPipe 'Đang tải' $dur
     }
     $f = Join-Path (Get-Location).Path "$outName.$ext"
     if ((FSize $f) -gt 1000) { Done $f } else { Say 'Khong tai duoc.' Red; Hints }
 }
 Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
 Write-Host ''
-Read-Host 'Bam Enter de dong cua so nay'
+if ($BG) {
+    try { Stop-Transcript | Out-Null } catch {}
+    [IO.File]::WriteAllText((Join-Path $PDIR 'progress.done'), '0')
+} else { Read-Host 'Bam Enter de dong cua so nay' }

@@ -101,6 +101,8 @@ $Host.UI.RawUI.WindowTitle = "CuttingVid - cat $fromTxt den $toTxt"
 Set-Location -LiteralPath $dir
 $ext = 'mp4'; if ($type -eq 'audio') { $ext = 'mp3' }
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+# 2K = lay ban net nhat (VP9, YouTube khong co H.264 tren 1080p); 480/1080 = H.264 (de dung CapCut, nhe)
+$VC = 'avc1'; if ([int]$h -ge 1440) { $VC = 'vp09' }
 $SAFE = '--sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10'
 $FF = @('-hide_banner', '-loglevel', 'error', '-stats', '-y')
 if ($exact) { $VENC = @('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p'); $AENC = @('-c:a', 'aac', '-b:a', '192k') }
@@ -354,7 +356,7 @@ if (-not $status) {
     $base = '_tam_scv_' + $stamp
     $limit = [int64](16500 * ($to + 40))
     $sel = '140/bestaudio'
-    if ($type -ne 'audio') { $sel = "bv*[height<=$h][vcodec^=avc1]+140/bv*[height<=$h]+140/bv*+ba" }
+    if ($type -ne 'audio') { $sel = "bv*[height<=$h][vcodec^=$VC]+140/bv*[height<=$h]+140/bv*+ba" }
     Say 'Video DANG LIVE.'
     Say "Buoc 1/2: tai tu dau buoi live den moc $(Fmt $to) ..."; P 0 'Đang tải live' "từ đầu buổi tới $(Fmt $to)"
     Say '(doan cang xa dau live cang lau; neu moc "den" chua toi, app se cho live phat toi do)' Yellow
@@ -472,7 +474,7 @@ if (-not $status) {
         & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 -x --audio-format mp3 --audio-quality 0 --no-mtime --newline --download-sections $sec -o $o $url 2>&1 | PPipe 'Đang tải' $dur
     } else {
         $fk = @(); if ($exact) { $fk = @('--force-keyframes-at-cuts') }
-        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 @fk -f "bv*[height<=$h][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=$h]+ba/b" --merge-output-format mp4 --no-mtime --newline --download-sections $sec -o $o $url 2>&1 | PPipe 'Đang tải' $dur
+        & yt-dlp -N 3 --sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10 @fk -f "bv*[height<=$h][vcodec^=$VC]+ba[ext=m4a]/bv*[height<=$h]+ba/b" --merge-output-format mp4 --no-mtime --newline --download-sections $sec -o $o $url 2>&1 | PPipe 'Đang tải' $dur
     }
     $f = Join-Path (Get-Location).Path "$outName.$ext"
     if ((FSize $f) -gt 1000) { Done $f } else { Say 'Khong tai duoc.' Red; Hints }

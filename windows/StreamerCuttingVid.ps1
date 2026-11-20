@@ -9,7 +9,7 @@ trap {
     exit 1
 }
 
-$AppVersion = '2.0'
+$AppVersion = '2.0.1'
 $AppName = 'CuttingVid by Louis Chu'
 $Here = $PSScriptRoot
 $ConfDir = Join-Path $env:APPDATA 'StreamerCuttingVid'

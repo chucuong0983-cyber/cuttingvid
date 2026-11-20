@@ -15,7 +15,9 @@ EXT=mp4; [ "$TYPE" = audio ] && EXT=mp3
 STAMP=$(date +%Y%m%d_%H%M%S)
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; C=$'\033[36m'; N=$'\033[0m'
 FF=(-hide_banner -loglevel error -stats -y)
-NOPROG=(); [ -t 1 ] || NOPROG=(--no-progress)   # chay nen (cua so app): khong in thanh % cua yt-dlp vao log
+NOPROG=(); [ -t 1 ] || NOPROG=(--no-progress)
+# 2K = lay ban net nhat (VP9; YouTube khong co H.264 tren 1080p); 480/1080 = H.264 (nhe, de dung CapCut)
+VC=avc1; [ "${H:-0}" -ge 1440 ] 2>/dev/null && VC=vp09   # chay nen (cua so app): khong in thanh % cua yt-dlp vao log
 SAFE=(--sleep-requests 1 --retry-sleep exp=1:30 --retry-sleep fragment:exp=1:30 --fragment-retries 10)
 if [ "$EXACT" = 1 ]; then
   VENC=(-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p); AENC=(-c:a aac -b:a 192k)
@@ -140,7 +142,7 @@ elif [ "$STATUS" = is_live ] || [ "$STATUS" = post_live ]; then
   base="_tam_scv_$STAMP"
   limit=$((16500 * (TO + 40)))
   sel='140/bestaudio'
-  [ "$TYPE" != audio ] && sel="bv*[height<=$H][vcodec^=avc1]+140/bv*[height<=$H]+140/bv*+ba"
+  [ "$TYPE" != audio ] && sel="bv*[height<=$H][vcodec^=$VC]+140/bv*[height<=$H]+140/bv*+ba"
   echo "${C}Video ĐANG LIVE.${N}"
   echo "${C}Bước 1/2: tải từ đầu buổi live đến mốc $(fmt $TO) ...${N}"; P 0 "Đang tải live" "từ đầu buổi tới $(fmt $TO)"
   echo "${Y}(đoạn càng xa đầu live càng lâu; nếu mốc \"đến\" chưa tới, app sẽ chờ live phát tới đó)${N}"
@@ -292,7 +294,7 @@ else
   if [ "$TYPE" = audio ]; then
     yt-dlp -N 3 "${SAFE[@]}" -x --audio-format mp3 --audio-quality 0 --no-mtime --newline --download-sections "$sec" -o "$o" "$URL" 2>&1 | ppipe "Đang tải" "$DUR"
   else
-    yt-dlp -N 3 "${SAFE[@]}" "${FK[@]}" -f "bv*[height<=$H][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=$H]+ba/b" --merge-output-format mp4 --no-mtime --newline --download-sections "$sec" -o "$o" "$URL" 2>&1 | ppipe "Đang tải" "$DUR"
+    yt-dlp -N 3 "${SAFE[@]}" "${FK[@]}" -f "bv*[height<=$H][vcodec^=$VC]+ba[ext=m4a]/bv*[height<=$H]+ba/b" --merge-output-format mp4 --no-mtime --newline --download-sections "$sec" -o "$o" "$URL" 2>&1 | ppipe "Đang tải" "$DUR"
   fi
   f="$OUTNAME.$EXT"
   if [ -s "$f" ]; then done_ok "$f"; else echo "${R}Không tải được.${N}"; hints; fi
